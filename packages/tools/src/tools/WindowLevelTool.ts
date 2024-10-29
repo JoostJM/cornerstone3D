@@ -72,39 +72,71 @@ class WindowLevelTool extends BaseTool {
       throw new Error('Viewport is not a valid type');
     }
 
-    // If modality is PT an the viewport is pre-scaled (SUV),
+    // If modality is PT and the viewport is pre-scaled (SUV),
     // treat it special to not include the canvas delta in
     // the x direction. For other modalities, use the canvas delta in both
     // directions, and if the viewport is a volumeViewport, the multiplier
-    // is calculate using the volume min and max.
-    if (modality === PT && isPreScaled) {
-      newRange = this.getPTScaledNewRange({
-        deltaPointsCanvas: deltaPoints.canvas,
-        lower,
-        upper,
-        clientHeight: element.clientHeight,
-        isPreScaled,
-        viewport,
-        volumeId,
-      });
+    // is calculated using the volume min and max.
+    if (properties.colormap) {
+      let { opacity } = properties.colormap;
+      const opacity_count = (opacity as any).length;
+      if (opacity_count) {
+        opacity[opacity_count - 1].opacity = this.getFusionNewRange({
+          deltaPointsCanvas: deltaPoints.canvas,
+          opacity: opacity[opacity_count - 1].opacity,
+          clientHeight: element.clientHeight,
+          viewport,
+          volumeId,
+        });
+      } else {
+        properties.colormap.opacity = this.getFusionNewRange({
+          deltaPointsCanvas: deltaPoints.canvas,
+          opacity,
+          clientHeight: element.clientHeight,
+          viewport,
+          volumeId,
+        });
+      }
+      viewport.setProperties(
+        {
+          colormap: properties.colormap,
+        },
+        volumeId
+      );
     } else {
-      newRange = this.getNewRange({
-        viewport,
-        deltaPointsCanvas: deltaPoints.canvas,
+      if (modality === PT) {
+        newRange = this.getPTScaledNewRange({
+          deltaPointsCanvas: deltaPoints.canvas,
+          lower,
+          upper,
+          clientHeight: element.clientHeight,
+          isPreScaled,
+          viewport,
+          volumeId,
+        });
+
+      } else {
+        newRange = this.getNewRange({
+          viewport,
+          deltaPointsCanvas: deltaPoints.canvas,
+          volumeId,
+          lower,
+          upper,
+        });
+      }
+
+      // If the range is not valid. Do nothing
+      if (newRange.lower >= newRange.upper) {
+        return;
+      }
+
+      viewport.setProperties(
+        {
+          voiRange: newRange,
+        },
         volumeId,
-        lower,
-        upper,
-      });
+      );
     }
-
-    // If the range is not valid. Do nothing
-    if (newRange.lower >= newRange.upper) {
-      return;
-    }
-
-    viewport.setProperties({
-      voiRange: newRange,
-    });
 
     viewport.render();
 
@@ -144,6 +176,24 @@ class WindowLevelTool extends BaseTool {
     upper = isPreScaled ? Math.max(upper, 0.1) : upper;
 
     return { lower, upper };
+  }
+
+  getFusionNewRange({
+    deltaPointsCanvas,
+    opacity,
+    clientHeight,
+    viewport,
+    volumeId,
+  }) {
+    let multiplier = 1 / clientHeight;
+
+    const deltaX = deltaPointsCanvas[0];
+    const wcDelta = deltaX * multiplier;
+
+    opacity += wcDelta;
+    opacity = Math.max(Math.min(0.999, opacity), 0);
+
+    return opacity;
   }
 
   getNewRange({ viewport, deltaPointsCanvas, volumeId, lower, upper }) {
