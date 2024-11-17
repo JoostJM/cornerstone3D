@@ -14,6 +14,7 @@ import ReferenceLinesTool from './ReferenceLinesTool';
 import OverlayGridTool from './OverlayGridTool';
 import SegmentationIntersectionTool from './SegmentationIntersectionTool';
 import ReferenceCursors from './ReferenceCursors';
+import ReferenceProbe from './ReferenceProbe';
 import ScaleOverlayTool from './ScaleOverlayTool';
 import SculptorTool from './SculptorTool';
 import VolumeRotateTool from './VolumeRotateTool';
@@ -84,6 +85,7 @@ export {
   LengthTool,
   HeightTool,
   ProbeTool,
+  ReferenceProbe,
   RectangleROITool,
   EllipticalROITool,
   CircleROITool,
