@@ -1,10 +1,12 @@
 /* eslint-disable @typescript-eslint/no-empty-function */
-import {vec2, vec3} from 'gl-matrix';
+import { vec2, vec3 } from 'gl-matrix';
 
 import {
   getEnabledElement,
   VolumeViewport,
-  utilities as csUtils, StackViewport, utilities,
+  utilities as csUtils,
+  StackViewport,
+  utilities,
 } from '@cornerstonejs/core';
 import type { Types } from '@cornerstonejs/core';
 
@@ -20,7 +22,8 @@ import {
 } from '../stateManagement/annotation/helpers/state';
 import { getCalibratedProbeUnitsAndValue } from '../utilities';
 import {
-  drawHandles as drawHandlesSvg, drawLine,
+  drawHandles as drawHandlesSvg,
+  drawLine,
   drawTextBox as drawTextBoxSvg,
 } from '../drawingSvg';
 import { state } from '../store';
@@ -39,7 +42,8 @@ import {
   ToolHandle,
   PublicToolProps,
   ToolProps,
-  SVGDrawingHelper, Annotations,
+  SVGDrawingHelper,
+  Annotations,
 } from '../types';
 import { ProbeAnnotation } from '../types/ToolSpecificAnnotationTypes';
 import { StyleSpecifier } from '../types/AnnotationStyle';
@@ -48,7 +52,7 @@ import {
   getModalityUnit,
 } from '../utilities/getModalityUnit';
 import { isViewportPreScaled } from '../utilities/viewport/isViewportPreScaled';
-import {isAnnotationVisible} from "../stateManagement/annotation/annotationVisibility";
+import { isAnnotationVisible } from '../stateManagement/annotation/annotationVisibility';
 
 const { transformWorldToIndex } = csUtils;
 
@@ -420,17 +424,17 @@ class ReferenceProbe extends AnnotationTool {
     const { viewport } = enabledElement;
     const { element } = viewport;
 
+    let annotations = getAnnotations(this.getToolName(), element);
+
+    if (!annotations?.length) {
+      return renderStatus;
+    }
+
     const isElementWithCursor = this._elementWithCursor === element;
 
     //update stack position if position sync is enabled
     if (this.configuration.positionSync && !isElementWithCursor) {
       this.updateViewportImage(viewport);
-    }
-
-    let annotations = getAnnotations(this.getToolName(), element);
-
-    if (!annotations?.length) {
-      return renderStatus;
     }
 
     annotations = this.filterInteractableAnnotationsForElement(
