@@ -77,8 +77,9 @@ class WindowLevelTool extends BaseTool {
     // the x direction. For other modalities, use the canvas delta in both
     // directions, and if the viewport is a volumeViewport, the multiplier
     // is calculated using the volume min and max.
-    if (properties.colormap) {
-      let { opacity } = properties.colormap;
+    const isFusion = viewport._actors && viewport._actors.size > 1;
+    if (isFusion) {
+      const { opacity } = properties.colormap;
       const opacity_count = (opacity as any).length;
       if (opacity_count) {
         opacity[opacity_count - 1].opacity = this.getFusionNewRange({
@@ -114,7 +115,6 @@ class WindowLevelTool extends BaseTool {
           viewport,
           volumeId,
         });
-
       } else {
         newRange = this.getNewRange({
           viewport,
@@ -134,7 +134,7 @@ class WindowLevelTool extends BaseTool {
         {
           voiRange: newRange,
         },
-        volumeId,
+        volumeId
       );
     }
 
@@ -185,7 +185,7 @@ class WindowLevelTool extends BaseTool {
     viewport,
     volumeId,
   }) {
-    let multiplier = 1 / clientHeight;
+    const multiplier = 1 / clientHeight;
 
     const deltaX = deltaPointsCanvas[0];
     const wcDelta = deltaX * multiplier;
