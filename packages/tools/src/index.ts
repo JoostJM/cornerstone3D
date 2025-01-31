@@ -30,6 +30,7 @@ import {
   DragProbeTool,
   WindowLevelTool,
   ZoomTool,
+  FusionStackScrollTool,
   StackScrollTool,
   PlanarRotateTool,
   MIPJumpToClickTool,
@@ -105,6 +106,7 @@ export {
   WindowLevelRegionTool,
   ZoomTool,
   StackScrollTool,
+  FusionStackScrollTool,
   PlanarRotateTool,
   MIPJumpToClickTool,
   // Annotation Tools

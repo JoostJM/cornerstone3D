@@ -47,11 +47,33 @@ class StackScrollTool extends BaseTool {
   }
 
   _scrollDrag(evt: EventTypes.InteractionEventType) {
-    const { deltaPoints, viewportId, renderingEngineId } = evt.detail;
+    const {
+      deltaPoints,
+      viewportId,
+      renderingEngineId,
+      startPoints,
+      lastPoints,
+    } = evt.detail;
     const { viewport } = getEnabledElementByIds(viewportId, renderingEngineId);
     const { debounceIfNotLoaded, invert, loop } = this.configuration;
     const deltaPointY = deltaPoints.canvas[1];
 
+    /*console.debug(
+              evt.detail.startPoints.canvas,
+              evt.detail.lastPoints.canvas,
+              evt.detail.currentPoints.canvas,
+              evt.detail.deltaPoints.canvas,
+            );*/
+    const diff = [
+      Math.abs(startPoints.canvas[0] - lastPoints.canvas[0]),
+      Math.abs(startPoints.canvas[1] - lastPoints.canvas[1]),
+    ];
+    if (!diff.some((delta: number) => delta > 10)) {
+      return;
+    }
+    const direction = diff[0] > diff[1] ? 'x' : 'y';
+    console.debug(direction, diff);
+    const d_uid = viewport.displaySetInstanceUIDs;
     let volumeId;
     if (viewport instanceof VolumeViewport) {
       volumeId = viewport.getVolumeId();

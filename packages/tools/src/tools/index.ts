@@ -4,6 +4,7 @@ import TrackballRotateTool from './TrackballRotateTool';
 import WindowLevelTool from './WindowLevelTool';
 import WindowLevelRegionTool from './WindowLevelRegionTool';
 import StackScrollTool from './StackScrollTool';
+import FusionStackScrollTool from './FusionStackScrollTool';
 import PlanarRotateTool from './PlanarRotateTool';
 import ZoomTool from './ZoomTool';
 import MIPJumpToClickTool from './MIPJumpToClickTool';
@@ -72,6 +73,7 @@ export {
   WindowLevelTool,
   WindowLevelRegionTool,
   StackScrollTool,
+  FusionStackScrollTool,
   PlanarRotateTool,
   ZoomTool,
   MIPJumpToClickTool,
