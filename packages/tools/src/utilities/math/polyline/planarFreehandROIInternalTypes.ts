@@ -1,5 +1,5 @@
 import type { Types } from '@cornerstonejs/core';
-import { PlanarFreehandROIAnnotation } from '../../../types/ToolSpecificAnnotationTypes';
+import type { PlanarFreehandROIAnnotation } from '../../../types/ToolSpecificAnnotationTypes';
 
 // Note: These types are internal to the drawing/editing processes of the tool.
 
@@ -20,6 +20,7 @@ type PlanarFreehandROIEditData = {
   // The index on the prevCanvasPoints that the edit line should snap to in the
   // edit preview.
   snapIndex?: number;
+  newAnnotation?: boolean;
 };
 
 type PlanarFreehandROICommonData = {
@@ -31,7 +32,7 @@ type PlanarFreehandROICommonData = {
   movingTextBox?: boolean;
 };
 
-export {
+export type {
   PlanarFreehandROIDrawData,
   PlanarFreehandROIEditData,
   PlanarFreehandROICommonData,

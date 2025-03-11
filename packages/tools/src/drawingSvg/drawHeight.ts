@@ -1,5 +1,5 @@
 import type { Types } from '@cornerstonejs/core';
-import { SVGDrawingHelper } from '../types';
+import type { SVGDrawingHelper } from '../types';
 import drawLine from './drawLine';
 
 export default function drawHeight(
@@ -57,6 +57,7 @@ export default function drawHeight(
       color,
       width,
       lineWidth,
+      lineDash,
     }
   );
 
@@ -71,6 +72,7 @@ export default function drawHeight(
       color,
       width,
       lineWidth,
+      lineDash,
     }
   );
 
@@ -85,6 +87,7 @@ export default function drawHeight(
       color,
       width,
       lineWidth,
+      lineDash,
     }
   );
 }

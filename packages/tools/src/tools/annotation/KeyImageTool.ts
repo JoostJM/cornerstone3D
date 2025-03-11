@@ -14,32 +14,30 @@ import {
   triggerAnnotationModified,
 } from '../../stateManagement/annotation/helpers/state';
 import { drawArrow as drawArrowSvg } from '../../drawingSvg';
-import { state } from '../../store';
+import { state } from '../../store/state';
 import { getViewportIdsWithToolToRender } from '../../utilities/viewportFilters';
 import triggerAnnotationRenderForViewportIds from '../../utilities/triggerAnnotationRenderForViewportIds';
 
 import { resetElementCursor } from '../../cursors/elementCursor';
 
-import {
+import type {
   EventTypes,
   ToolHandle,
   PublicToolProps,
   ToolProps,
   SVGDrawingHelper,
+  Annotation,
 } from '../../types';
-import { StyleSpecifier } from '../../types/AnnotationStyle';
-import { Annotation } from '../../types';
+import type { StyleSpecifier } from '../../types/AnnotationStyle';
 
 type Point2 = Types.Point2;
 
 class KeyImageTool extends AnnotationTool {
   static toolName;
 
-  public touchDragCallback: any;
-  public mouseDragCallback: any;
-  _throttledCalculateCachedStats: any;
+  _throttledCalculateCachedStats: Function;
   editData: {
-    annotation: any;
+    annotation: Annotation;
     viewportIdsToRender: string[];
     handleIndex?: number;
     movingTextBox?: boolean;
@@ -74,24 +72,11 @@ class KeyImageTool extends AnnotationTool {
    */
   addNewAnnotation = (evt: EventTypes.InteractionEventType) => {
     const eventDetail = evt.detail;
-    const { currentPoints, element } = eventDetail;
-    const worldPos = currentPoints.world;
+    const { element } = eventDetail;
     const enabledElement = getEnabledElement(element);
-    const { viewport, renderingEngine } = enabledElement;
+    const { viewport } = enabledElement;
 
-    const camera = viewport.getCamera();
-    const { viewPlaneNormal, viewUp } = camera;
-
-    const referencedImageId = this.getReferencedImageId(
-      viewport,
-      worldPos,
-      viewPlaneNormal,
-      viewUp
-    );
-
-    const annotation = KeyImageTool.createAnnotation({
-      metadata: { ...viewport.getViewReference(), referencedImageId },
-    });
+    const annotation = KeyImageTool.createAnnotationForViewport(viewport);
 
     addAnnotation(annotation, element);
 
@@ -102,15 +87,12 @@ class KeyImageTool extends AnnotationTool {
 
     evt.preventDefault();
 
-    triggerAnnotationRenderForViewportIds(renderingEngine, viewportIdsToRender);
+    triggerAnnotationRenderForViewportIds(viewportIdsToRender);
 
     this.configuration.getTextCallback((text) => {
       if (!text) {
         removeAnnotation(annotation.annotationUID);
-        triggerAnnotationRenderForViewportIds(
-          renderingEngine,
-          viewportIdsToRender
-        );
+        triggerAnnotationRenderForViewportIds(viewportIdsToRender);
         this.isDrawing = false;
         return;
       }
@@ -118,11 +100,10 @@ class KeyImageTool extends AnnotationTool {
 
       triggerAnnotationCompleted(annotation);
 
-      triggerAnnotationRenderForViewportIds(
-        renderingEngine,
-        viewportIdsToRender
-      );
+      triggerAnnotationRenderForViewportIds(viewportIdsToRender);
     });
+
+    this.createMemo(element, annotation, { newAnnotation: true });
 
     return annotation;
   };
@@ -188,6 +169,8 @@ class KeyImageTool extends AnnotationTool {
     const eventDetail = evt.detail;
     const { element } = eventDetail;
 
+    this.doneEditMemo();
+
     this._deactivateModify(element);
     resetElementCursor(element);
   };
@@ -220,7 +203,7 @@ class KeyImageTool extends AnnotationTool {
     }
 
     const annotation = clickedAnnotation as Annotation;
-
+    this.createMemo(element, annotation);
     this.configuration.changeTextCallback(
       clickedAnnotation,
       evt.detail,
@@ -229,6 +212,7 @@ class KeyImageTool extends AnnotationTool {
 
     this.isDrawing = false;
 
+    this.doneEditMemo();
     // This double click was handled and the dialogue was displayed.
     // No need for any other listener to handle it too - stopImmediatePropagation
     // helps ensure this primarily so that no other listeners on the target element
@@ -247,7 +231,7 @@ class KeyImageTool extends AnnotationTool {
       element,
       this.getToolName()
     );
-    triggerAnnotationRenderForViewportIds(renderingEngine, viewportIdsToRender);
+    triggerAnnotationRenderForViewportIds(viewportIdsToRender);
 
     // Dispatching annotation modified
     triggerAnnotationModified(annotation, element);

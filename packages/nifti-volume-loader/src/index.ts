@@ -1,6 +1,13 @@
-import cornerstoneNiftiImageVolumeLoader from './cornerstoneNiftiImageLoader';
-import NiftiImageVolume from './NiftiImageVolume';
+import cornerstoneNiftiImageLoader from './cornerstoneNiftiImageLoader';
 import * as helpers from './helpers';
 import * as Enums from './enums';
+import { createNiftiImageIdsAndCacheMetadata } from './createNiftiImageIdsAndCacheMetadata';
+import init from './init';
 
-export { cornerstoneNiftiImageVolumeLoader, NiftiImageVolume, helpers, Enums };
+export {
+  cornerstoneNiftiImageLoader,
+  helpers,
+  Enums,
+  createNiftiImageIdsAndCacheMetadata,
+  init,
+};

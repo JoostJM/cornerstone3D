@@ -13,11 +13,6 @@ import calibratedPixelSpacingMetadataProvider from './calibratedPixelSpacingMeta
 import clamp from './clamp';
 import { isEqual, isEqualAbs, isEqualNegative } from './isEqual';
 import isOpposite from './isOpposite';
-import createUint8SharedArray from './createUint8SharedArray';
-import createFloat32SharedArray from './createFloat32SharedArray';
-import createUint16SharedArray from './createUInt16SharedArray';
-import createInt16SharedArray from './createInt16SharedArray';
-import getViewportModality from './getViewportModality';
 import getClosestImageId from './getClosestImageId';
 import getSpacingInNormalDirection from './getSpacingInNormalDirection';
 import getTargetVolumeAndSpacingInNormalDir from './getTargetVolumeAndSpacingInNormalDir';
@@ -25,9 +20,12 @@ import getVolumeActorCorners from './getVolumeActorCorners';
 import indexWithinDimensions from './indexWithinDimensions';
 import getVolumeViewportsContainingSameVolumes from './getVolumeViewportsContainingSameVolumes';
 import getViewportsWithVolumeId from './getViewportsWithVolumeId';
-import transformWorldToIndex from './transformWorldToIndex';
+import transformWorldToIndex, {
+  transformWorldToIndexContinuous,
+} from './transformWorldToIndex';
 import transformIndexToWorld from './transformIndexToWorld';
 import loadImageToCanvas from './loadImageToCanvas';
+import * as HistoryMemo from './historyMemo';
 import renderToCanvasCPU from './renderToCanvasCPU';
 import renderToCanvasGPU from './renderToCanvasGPU';
 import worldToImageCoords from './worldToImageCoords';
@@ -49,7 +47,6 @@ import applyPreset from './applyPreset';
 import PointsManager from './PointsManager';
 import deepMerge from './deepMerge';
 import getScalingParameters from './getScalingParameters';
-import getScalarDataType from './getScalarDataType';
 import isPTPrescaledWithSUV from './isPTPrescaledWithSUV';
 import getImageLegacy from './getImageLegacy';
 import sortImageIdsAndGetSpacing from './sortImageIdsAndGetSpacing';
@@ -73,16 +70,36 @@ import getViewportImageIds from './getViewportImageIds';
 import { getRandomSampleFromArray } from './getRandomSampleFromArray';
 import { getVolumeId } from './getVolumeId';
 import { hasFloatScalingParameters } from './hasFloatScalingParameters';
-
+import { pointInShapeCallback } from './pointInShapeCallback';
 // name spaces
 import * as planar from './planar';
 import * as windowLevel from './windowLevel';
 import * as colormap from './colormap';
 import * as transferFunctionUtils from './transferFunctionUtils';
-import * as cacheUtils from './cacheUtils';
 import * as color from './color';
+import { deepEqual } from './deepEqual';
+import type { IViewport } from '../types/IViewport';
+import FrameRange from './FrameRange';
+
+// solving the circular dependency issue
+import { _getViewportModality } from './getViewportModality';
+import cache from '../cache/cache';
+import getDynamicVolumeInfo from './getDynamicVolumeInfo';
+import autoLoad from './autoLoad';
+import scaleArray from './scaleArray';
+import splitImageIdsBy4DTags from './splitImageIdsBy4DTags';
+import { deepClone } from './deepClone';
+import { jumpToSlice } from './jumpToSlice';
+import scroll from './scroll';
+import clip from './clip';
+import createSubVolume from './createSubVolume';
+import getVolumeDirectionVectors from './getVolumeDirectionVectors';
+
+const getViewportModality = (viewport: IViewport, volumeId?: string) =>
+  _getViewportModality(viewport, volumeId, cache.getVolume);
 
 export {
+  FrameRange,
   eventListener,
   csUtils as invertRgbTransferFunction,
   createSigmoidRGBTransferFunction,
@@ -101,10 +118,6 @@ export {
   isEqualAbs,
   isEqualNegative,
   isOpposite,
-  createFloat32SharedArray,
-  createUint8SharedArray,
-  createUint16SharedArray,
-  createInt16SharedArray,
   getViewportModality,
   windowLevel,
   convertToGrayscale,
@@ -141,7 +154,6 @@ export {
   deepMerge,
   PointsManager,
   getScalingParameters,
-  getScalarDataType,
   colormap,
   getImageLegacy,
   ProgressiveIterator,
@@ -154,13 +166,13 @@ export {
   isValidVolume,
   genericMetadataProvider,
   isVideoTransferSyntax,
+  HistoryMemo,
   generateVolumePropsFromImageIds,
   getBufferConfiguration,
   VoxelManager,
   RLEVoxelMap,
   convertStackToVolumeViewport,
   convertVolumeToStackViewport,
-  cacheUtils,
   roundNumber,
   roundToPrecision,
   getViewportImageIds,
@@ -168,4 +180,17 @@ export {
   getVolumeId,
   color,
   hasFloatScalingParameters,
+  getDynamicVolumeInfo,
+  autoLoad,
+  scaleArray,
+  deepClone,
+  splitImageIdsBy4DTags,
+  pointInShapeCallback,
+  deepEqual,
+  jumpToSlice,
+  scroll,
+  clip,
+  transformWorldToIndexContinuous,
+  createSubVolume,
+  getVolumeDirectionVectors,
 };

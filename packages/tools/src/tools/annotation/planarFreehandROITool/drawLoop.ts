@@ -1,11 +1,11 @@
-import { getEnabledElement, utilities } from '@cornerstonejs/core';
+import { getEnabledElement, utilities, type Types } from '@cornerstonejs/core';
 import {
   resetElementCursor,
   hideElementCursor,
 } from '../../../cursors/elementCursor';
 import { Events } from '../../../enums';
-import { EventTypes } from '../../../types';
-import { state } from '../../../store';
+import type { EventTypes } from '../../../types';
+import { state } from '../../../store/state';
 import { vec3 } from 'gl-matrix';
 import {
   shouldSmooth,
@@ -14,7 +14,7 @@ import {
 import getMouseModifierKey from '../../../eventDispatchers/shared/getMouseModifier';
 import triggerAnnotationRenderForViewportIds from '../../../utilities/triggerAnnotationRenderForViewportIds';
 import { triggerContourAnnotationCompleted } from '../../../stateManagement/annotation/helpers/state';
-import { PlanarFreehandROIAnnotation } from '../../../types/ToolSpecificAnnotationTypes';
+import type { PlanarFreehandROIAnnotation } from '../../../types/ToolSpecificAnnotationTypes';
 import findOpenUShapedContourVectorToPeak from './findOpenUShapedContourVectorToPeak';
 import { polyline } from '../../../utilities/math';
 import { removeAnnotation } from '../../../stateManagement/annotation/annotationState';
@@ -46,15 +46,21 @@ function activateDraw(
     getMouseModifierKey(evt.detail.event) ===
     this.configuration.contourHoleAdditionModifierKey;
 
-  const { spacing, xDir, yDir } = getSubPixelSpacingAndXYDirections(
-    viewport,
-    this.configuration.subPixelResolution
-  );
+  const { spacing, xDir, yDir } =
+    getSubPixelSpacingAndXYDirections(
+      viewport,
+      this.configuration.subPixelResolution
+    ) || {};
+
+  if (!spacing || !xDir || !yDir) {
+    return;
+  }
 
   this.drawData = {
     canvasPoints: [canvasPos],
     polylineIndex: 0,
     contourHoleProcessingEnabled,
+    newAnnotation: true,
   };
 
   this.commonData = {
@@ -103,7 +109,7 @@ function mouseDragDrawCallback(evt: EventTypes.InteractionEventType): void {
   const worldPos = currentPoints.world;
   const canvasPos = currentPoints.canvas;
   const enabledElement = getEnabledElement(element);
-  const { renderingEngine, viewport } = enabledElement;
+  const { viewport } = enabledElement;
 
   const {
     annotation,
@@ -113,7 +119,8 @@ function mouseDragDrawCallback(evt: EventTypes.InteractionEventType): void {
     spacing,
     movingTextBox,
   } = this.commonData;
-  const { polylineIndex, canvasPoints } = this.drawData;
+  const { polylineIndex, canvasPoints, newAnnotation } = this.drawData;
+  this.createMemo(element, annotation, { newAnnotation });
 
   const lastCanvasPoint = canvasPoints[canvasPoints.length - 1];
   const lastWorldPoint = viewport.canvasToWorld(lastCanvasPoint);
@@ -165,7 +172,7 @@ function mouseDragDrawCallback(evt: EventTypes.InteractionEventType): void {
     }
   }
 
-  triggerAnnotationRenderForViewportIds(renderingEngine, viewportIdsToRender);
+  triggerAnnotationRenderForViewportIds(viewportIdsToRender);
 }
 
 /**
@@ -181,6 +188,9 @@ function mouseUpDrawCallback(evt: EventTypes.InteractionEventType): void {
   const lastPoint = canvasPoints[canvasPoints.length - 1];
   const eventDetail = evt.detail;
   const { element } = eventDetail;
+
+  this.doneEditMemo();
+  this.drawData.newAnnotation = false;
 
   if (
     allowOpenContours &&
@@ -258,7 +268,7 @@ function completeDrawClosedContour(
   this.drawData = undefined;
   this.commonData = undefined;
 
-  triggerAnnotationRenderForViewportIds(renderingEngine, viewportIdsToRender);
+  triggerAnnotationRenderForViewportIds(viewportIdsToRender);
 
   this.deactivateDraw(element);
 
@@ -358,7 +368,7 @@ function completeDrawOpenContour(
   this.drawData = undefined;
   this.commonData = undefined;
 
-  triggerAnnotationRenderForViewportIds(renderingEngine, viewportIdsToRender);
+  triggerAnnotationRenderForViewportIds(viewportIdsToRender);
 
   this.deactivateDraw(element);
 
@@ -470,7 +480,7 @@ function cancelDrawing(element: HTMLElement) {
  * Tell whether a drawing should be halted or not. It will be true when canvas points is less than the minimum required.
  */
 function shouldHaltDrawing(
-  canvasPoints: any,
+  canvasPoints: Types.Point2[],
   subPixelResolution: number
 ): boolean {
   const minPoints = Math.max(
@@ -489,9 +499,12 @@ function shouldHaltDrawing(
 }
 
 /**
- * Check and halt a drawing for a given event. It returns true in case drawing is halted, otherswise false.
+ * Check and halt a drawing for a given event. It returns true in case drawing is halted, otherwise false.
  */
-function haltDrawing(element: HTMLDivElement, canvasPoints: any): boolean {
+function haltDrawing(
+  element: HTMLDivElement,
+  canvasPoints: Types.Point2[]
+): boolean {
   const { subPixelResolution } = this.configuration;
 
   if (shouldHaltDrawing(canvasPoints, subPixelResolution)) {
@@ -506,7 +519,7 @@ function haltDrawing(element: HTMLDivElement, canvasPoints: any): boolean {
     this.drawData = undefined;
     this.commonData = undefined;
 
-    triggerAnnotationRenderForViewportIds(renderingEngine, viewportIdsToRender);
+    triggerAnnotationRenderForViewportIds(viewportIdsToRender);
 
     this.deactivateDraw(element);
 

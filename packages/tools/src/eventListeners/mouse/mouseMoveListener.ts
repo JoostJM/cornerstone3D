@@ -1,7 +1,7 @@
 import { getEnabledElement, triggerEvent } from '@cornerstonejs/core';
 import Events from '../../enums/Events';
 import getMouseEventPoints from './getMouseEventPoints';
-import { MouseMoveEventDetail } from '../../types/EventTypes';
+import type { MouseMoveEventDetail } from '../../types/EventTypes';
 
 const eventName = Events.MOUSE_MOVE;
 
@@ -14,6 +14,11 @@ const eventName = Events.MOUSE_MOVE;
 function mouseMoveListener(evt: MouseEvent) {
   const element = <HTMLDivElement>evt.currentTarget;
   const enabledElement = getEnabledElement(element);
+
+  if (!enabledElement) {
+    return;
+  }
+
   const { renderingEngineId, viewportId } = enabledElement;
 
   const currentPoints = getMouseEventPoints(evt);

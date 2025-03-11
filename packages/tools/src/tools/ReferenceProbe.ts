@@ -4,7 +4,6 @@ import { vec2, vec3 } from 'gl-matrix';
 import {
   getEnabledElement,
   VolumeViewport,
-  utilities as csUtils,
   StackViewport,
   utilities,
 } from '@cornerstonejs/core';
@@ -15,21 +14,11 @@ import {
   addAnnotation,
   getAnnotations,
   removeAnnotation,
-} from '../stateManagement/annotation/annotationState';
-import {
-  triggerAnnotationCompleted,
-  triggerAnnotationModified,
-} from '../stateManagement/annotation/helpers/state';
-import { getCalibratedProbeUnitsAndValue } from '../utilities';
-import {
-  drawHandles as drawHandlesSvg,
-  drawLine,
-  drawTextBox as drawTextBoxSvg,
-} from '../drawingSvg';
+} from '../stateManagement';
+import { drawLine } from '../drawingSvg';
 import { state } from '../store';
 import { Events } from '../enums';
 import { getViewportIdsWithToolToRender } from '../utilities/viewportFilters';
-import { roundNumber } from '../utilities';
 import {
   resetElementCursor,
   hideElementCursor,
@@ -37,24 +26,18 @@ import {
 
 import triggerAnnotationRenderForViewportIds from '../utilities/triggerAnnotationRenderForViewportIds';
 
-import {
+import type {
   EventTypes,
   ToolHandle,
   PublicToolProps,
   ToolProps,
   SVGDrawingHelper,
+  Annotation,
   Annotations,
 } from '../types';
-import { ProbeAnnotation } from '../types/ToolSpecificAnnotationTypes';
-import { StyleSpecifier } from '../types/AnnotationStyle';
-import {
-  ModalityUnitOptions,
-  getModalityUnit,
-} from '../utilities/getModalityUnit';
-import { isViewportPreScaled } from '../utilities/viewport/isViewportPreScaled';
+import type { ProbeAnnotation } from '../types/ToolSpecificAnnotationTypes';
+import type { StyleSpecifier } from '../types/AnnotationStyle';
 import { isAnnotationVisible } from '../stateManagement/annotation/annotationVisibility';
-
-const { transformWorldToIndex } = csUtils;
 
 /**
  * ProbeTool let you get the underlying voxel value by putting a probe in that
@@ -102,10 +85,10 @@ const { transformWorldToIndex } = csUtils;
 class ReferenceProbe extends AnnotationTool {
   static toolName;
 
-  touchDragCallback: any;
-  mouseDragCallback: any;
+  touchDragCallback: never;
+  mouseDragCallback: never;
   editData: {
-    annotation: any;
+    annotation: Annotation;
     viewportIdsToRender: string[];
     newAnnotation?: boolean;
   } | null;
@@ -160,13 +143,13 @@ class ReferenceProbe extends AnnotationTool {
     const worldPos = currentPoints.world;
 
     const enabledElement = getEnabledElement(element);
-    const { viewport, renderingEngine } = enabledElement;
+    const { viewport } = enabledElement;
 
     this.isDrawing = true;
     const camera = viewport.getCamera();
     const { viewPlaneNormal, viewUp } = camera;
 
-    //save current positions and current element the curser is hovering over
+    //save current positions and current element the cursor is hovering over
     this._currentCursorWorldPosition = currentPoints.world;
     this._currentCanvasPosition = currentPoints.canvas;
     this._elementWithCursor = element;
@@ -229,7 +212,7 @@ class ReferenceProbe extends AnnotationTool {
 
     evt.preventDefault();
 
-    triggerAnnotationRenderForViewportIds(renderingEngine, viewportIdsToRender);
+    triggerAnnotationRenderForViewportIds(viewportIdsToRender);
 
     return annotation;
   };
@@ -292,10 +275,7 @@ class ReferenceProbe extends AnnotationTool {
 
     hideElementCursor(element);
 
-    const enabledElement = getEnabledElement(element);
-    const { renderingEngine } = enabledElement;
-
-    triggerAnnotationRenderForViewportIds(renderingEngine, viewportIdsToRender);
+    triggerAnnotationRenderForViewportIds(viewportIdsToRender);
 
     evt.preventDefault();
   }
@@ -304,7 +284,7 @@ class ReferenceProbe extends AnnotationTool {
     const eventDetail = evt.detail;
     const { element } = eventDetail;
 
-    const { annotation, viewportIdsToRender, newAnnotation } = this.editData;
+    const { annotation, viewportIdsToRender } = this.editData;
 
     const { viewportId, renderingEngine } = getEnabledElement(element);
     this.eventDispatchDetail = {
@@ -319,25 +299,15 @@ class ReferenceProbe extends AnnotationTool {
     this.editData = null;
     this.isDrawing = false;
 
-    /*if (
-      this.isHandleOutsideImage &&
-      this.configuration.preventHandleOutsideImage
-    ) {*/
     removeAnnotation(annotation.annotationUID);
-    //}
-
-    triggerAnnotationRenderForViewportIds(renderingEngine, viewportIdsToRender);
-
-    /*if (newAnnotation) {
-      triggerAnnotationCompleted(annotation);
-    }*/
+    triggerAnnotationRenderForViewportIds(viewportIdsToRender);
   };
 
   _dragCallback = (evt) => {
     this.isDrawing = true;
     const eventDetail = evt.detail;
     const { currentPoints, element } = eventDetail;
-    const worldPos = currentPoints.world;
+    const worldPos: Types.Point3 = currentPoints.world;
 
     const { annotation, viewportIdsToRender } = this.editData;
     const { data } = annotation;
@@ -347,13 +317,10 @@ class ReferenceProbe extends AnnotationTool {
     this._currentCanvasPosition = currentPoints.canvas;
     this._elementWithCursor = element;
 
-    data.handles.points[0] = [...worldPos];
+    data.handles.points = [[...worldPos]];
     annotation.invalidated = true;
 
-    const enabledElement = getEnabledElement(element);
-    const { renderingEngine } = enabledElement;
-
-    triggerAnnotationRenderForViewportIds(renderingEngine, viewportIdsToRender);
+    triggerAnnotationRenderForViewportIds(viewportIdsToRender);
   };
 
   cancel = (element: HTMLDivElement) => {
@@ -363,18 +330,13 @@ class ReferenceProbe extends AnnotationTool {
       this._deactivateModify(element);
       resetElementCursor(element);
 
-      const { annotation, viewportIdsToRender, newAnnotation } = this.editData;
+      const { annotation, viewportIdsToRender } = this.editData;
       const { data } = annotation;
 
       annotation.highlighted = false;
       data.handles.activeHandleIndex = null;
 
-      const { renderingEngine } = getEnabledElement(element);
-
-      triggerAnnotationRenderForViewportIds(
-        renderingEngine,
-        viewportIdsToRender
-      );
+      triggerAnnotationRenderForViewportIds(viewportIdsToRender);
 
       /*if (newAnnotation) {
         triggerAnnotationCompleted(annotation);

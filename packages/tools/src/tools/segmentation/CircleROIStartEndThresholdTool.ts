@@ -1,6 +1,6 @@
+import type { Types } from '@cornerstonejs/core';
 import {
   StackViewport,
-  Types,
   cache,
   getEnabledElement,
   utilities as csUtils,
@@ -33,15 +33,19 @@ import {
   triggerAnnotationCompleted,
   triggerAnnotationModified,
 } from '../../stateManagement/annotation/helpers/state';
-import {
+import type {
   PublicToolProps,
   ToolProps,
   EventTypes,
   SVGDrawingHelper,
+  Annotation,
 } from '../../types';
-import { CircleROIStartEndThresholdAnnotation } from '../../types/ToolSpecificAnnotationTypes';
+import type {
+  CircleROIStartEndThresholdAnnotation,
+  ROICachedStats,
+} from '../../types/ToolSpecificAnnotationTypes';
 import CircleROITool from '../annotation/CircleROITool';
-import { StyleSpecifier } from '../../types/AnnotationStyle';
+import type { StyleSpecifier } from '../../types/AnnotationStyle';
 import {
   getCanvasCircleCorners,
   getCanvasCircleRadius,
@@ -50,25 +54,21 @@ import {
   getCalibratedLengthUnitsAndScale,
   getCalibratedAspect,
 } from '../../utilities/getCalibratedUnits';
-import { getModalityUnit } from '../../utilities/getModalityUnit';
 import { isViewportPreScaled } from '../../utilities/viewport/isViewportPreScaled';
 import { pointInEllipse } from '../../utilities/math/ellipse';
-import { pointInShapeCallback, roundNumber } from '../../utilities';
 import { BasicStatsCalculator } from '../../utilities/math/basic';
 
-import cloneDeep from 'lodash.clonedeep';
 import { filterAnnotationsWithinSamePlane } from '../../utilities/planar';
+import { getPixelValueUnits } from '../../utilities/getPixelValueUnits';
 
 const { transformWorldToIndex } = csUtils;
 
 class CircleROIStartEndThresholdTool extends CircleROITool {
   static toolName;
 
-  touchDragCallback: any;
-  mouseDragCallback: any;
-  _throttledCalculateCachedStats: any;
+  _throttledCalculateCachedStats: Function;
   editData: {
-    annotation: any;
+    annotation: Annotation;
     viewportIdsToRender: Array<string>;
     handleIndex?: number;
     newAnnotation?: boolean;
@@ -82,6 +82,8 @@ class CircleROIStartEndThresholdTool extends CircleROITool {
     defaultToolProps: ToolProps = {
       supportedInteractionTypes: ['Mouse', 'Touch'],
       configuration: {
+        // Whether to store point data in the annotation
+        storePointData: false,
         numSlicesToPropagate: 10,
         calculatePointsInsideVolume: false,
         getTextLines: defaultGetTextLines,
@@ -196,7 +198,7 @@ class CircleROIStartEndThresholdTool extends CircleROITool {
         cachedStats: {
           pointsInVolume: [],
           projectionPoints: [],
-          statistics: [],
+          statistics: [] as unknown as ROICachedStats,
         },
         labelmapUID: null,
       },
@@ -226,7 +228,7 @@ class CircleROIStartEndThresholdTool extends CircleROITool {
 
     evt.preventDefault();
 
-    triggerAnnotationRenderForViewportIds(renderingEngine, viewportIdsToRender);
+    triggerAnnotationRenderForViewportIds(viewportIdsToRender);
 
     return annotation;
   };
@@ -279,10 +281,7 @@ class CircleROIStartEndThresholdTool extends CircleROITool {
       );
     }
 
-    triggerAnnotationRenderForViewportIds(
-      enabledElement.renderingEngine,
-      viewportIdsToRender
-    );
+    triggerAnnotationRenderForViewportIds(viewportIdsToRender);
 
     if (newAnnotation) {
       triggerAnnotationCompleted(annotation);
@@ -322,7 +321,7 @@ class CircleROIStartEndThresholdTool extends CircleROITool {
 
     for (let i = 0; i < annotations.length; i++) {
       const annotation = annotations[i] as CircleROIStartEndThresholdAnnotation;
-      const { annotationUID, data } = annotation;
+      const { annotationUID, data, metadata } = annotation;
       const { startCoordinate, endCoordinate } = data;
       const { points, activeHandleIndex } = data.handles;
 
@@ -346,53 +345,67 @@ class CircleROIStartEndThresholdTool extends CircleROITool {
       const focalPoint = viewport.getCamera().focalPoint;
       const viewplaneNormal = viewport.getCamera().viewPlaneNormal;
 
-      let startCoord: number | vec3 = startCoordinate;
-      let endCoord: number | vec3 = endCoordinate;
+      let tempStartCoordinate: number | vec3 = startCoordinate;
+      let tempEndCoordinate: number | vec3 = endCoordinate;
       if (Array.isArray(startCoordinate)) {
-        startCoord = this._getCoordinateForViewplaneNormal(
-          startCoord,
+        tempStartCoordinate = this._getCoordinateForViewplaneNormal(
+          tempStartCoordinate,
           viewplaneNormal
         );
+        data.startCoordinate = tempStartCoordinate;
       }
       if (Array.isArray(endCoordinate)) {
-        endCoord = this._getCoordinateForViewplaneNormal(
-          endCoord,
+        tempEndCoordinate = this._getCoordinateForViewplaneNormal(
+          tempEndCoordinate,
           viewplaneNormal
         );
+        data.endCoordinate = tempEndCoordinate;
       }
 
-      const roundedStartCoord = coreUtils.roundToPrecision(startCoord);
-      const roundedEndCoord = coreUtils.roundToPrecision(endCoord);
+      const roundedStartCoordinate = coreUtils.roundToPrecision(
+        data.startCoordinate
+      );
+      const roundedEndCoordinate = coreUtils.roundToPrecision(
+        data.endCoordinate
+      );
 
-      const coord = this._getCoordinateForViewplaneNormal(
+      const cameraCoordinate = this._getCoordinateForViewplaneNormal(
         focalPoint,
         viewplaneNormal
       );
-      const roundedCoord = coreUtils.roundToPrecision(coord);
+      const roundedCameraCoordinate =
+        coreUtils.roundToPrecision(cameraCoordinate);
 
       // if the focalpoint is outside the start/end coordinates, we don't render
       if (
-        roundedCoord < Math.min(roundedStartCoord, roundedEndCoord) ||
-        roundedCoord > Math.max(roundedStartCoord, roundedEndCoord)
+        roundedCameraCoordinate <
+          Math.min(roundedStartCoordinate, roundedEndCoordinate) ||
+        roundedCameraCoordinate >
+          Math.max(roundedStartCoordinate, roundedEndCoordinate)
       ) {
         continue;
       }
+      const middleCoordinate = coreUtils.roundToPrecision(
+        (data.startCoordinate + data.endCoordinate) / 2
+      );
+      // if it is inside the start/end slice, but not exactly the first or
+      // last slice, we render the line in dash, but not the handles
+
+      let isMiddleSlice = false;
+      if (roundedCameraCoordinate === middleCoordinate) {
+        isMiddleSlice = true;
+      }
+
+      data.handles.points[0][
+        this._getIndexOfCoordinatesForViewplaneNormal(viewplaneNormal)
+      ] = middleCoordinate;
+
       // WE HAVE TO CACHE STATS BEFORE FETCHING TEXT
 
       if (annotation.invalidated) {
         this._throttledCalculateCachedStats(annotation, enabledElement);
       }
 
-      const middleCoord = coreUtils.roundToPrecision(
-        (startCoord + endCoord) / 2
-      );
-      // if it is inside the start/end slice, but not exactly the first or
-      // last slice, we render the line in dash, but not the handles
-
-      let isMiddleSlice = false;
-      if (roundedCoord === middleCoord) {
-        isMiddleSlice = true;
-      }
       // If rendering engine has been destroyed while rendering
       if (!viewport.getRenderingEngine()) {
         console.warn('Rendering Engine has been destroyed');
@@ -405,7 +418,7 @@ class CircleROIStartEndThresholdTool extends CircleROITool {
         continue;
       }
       if (
-        !isAnnotationLocked(annotation) &&
+        !isAnnotationLocked(annotationUID) &&
         !this.editData &&
         activeHandleIndex !== null &&
         isMiddleSlice
@@ -489,7 +502,7 @@ class CircleROIStartEndThresholdTool extends CircleROITool {
           };
           continue;
         }
-        const textLines = this.configuration.getTextLines(data);
+        const textLines = this.configuration.getTextLines(data, { metadata });
         if (!textLines || textLines.length === 0) {
           continue;
         }
@@ -546,7 +559,7 @@ class CircleROIStartEndThresholdTool extends CircleROITool {
     const startIJK = transformWorldToIndex(imageData, points[0]);
     const endIJK = transformWorldToIndex(imageData, points[0]);
 
-    const handlesToStart = cloneDeep(points);
+    const handlesToStart = csUtils.deepClone(points) as typeof points;
 
     const startWorld = vec3.create();
     imageData.indexToWorldVec3(startIJK, startWorld);
@@ -605,12 +618,12 @@ class CircleROIStartEndThresholdTool extends CircleROITool {
   ) {
     const { data, metadata } = annotation;
     const { viewPlaneNormal, viewUp } = metadata;
-    const { viewport, renderingEngine } = enabledElement;
+    const { viewport } = enabledElement;
     const projectionPoints = data.cachedStats.projectionPoints;
 
     const pointsInsideVolume: Types.Point3[][] = [[]];
 
-    const image = this.getTargetIdImage(targetId, renderingEngine);
+    const image = this.getTargetImageData(targetId);
 
     const canvasCoordinates = data.handles.points.map((p) =>
       viewport.worldToCanvas(p)
@@ -644,7 +657,7 @@ class CircleROIStartEndThresholdTool extends CircleROITool {
       ),
     };
 
-    const modalityUnit = getModalityUnit(
+    const modalityUnit = getPixelValueUnits(
       metadata.Modality,
       annotation.metadata.referencedImageId,
       modalityUnitOptions
@@ -673,7 +686,7 @@ class CircleROIStartEndThresholdTool extends CircleROITool {
       const worldPos1 = topLeftWorld;
       const worldPos2 = bottomRightWorld;
 
-      const { dimensions, imageData } = imageVolume;
+      const { dimensions, imageData, voxelManager } = imageVolume;
 
       const worldPos1Index = transformWorldToIndex(imageData, worldPos1);
 
@@ -729,15 +742,15 @@ class CircleROIStartEndThresholdTool extends CircleROITool {
           zRadius: Math.abs(topLeftWorld[2] - bottomRightWorld[2]) / 2,
         };
 
-        const pointsInShape = pointInShapeCallback(
-          imageData,
-          //@ts-ignore
-          (pointLPS) => pointInEllipse(ellipseObj, pointLPS),
+        const pointsInShape = voxelManager.forEach(
           this.configuration.statsCalculator.statsCallback,
-          boundsIJK
+          {
+            isInObject: (pointLPS) => pointInEllipse(ellipseObj, pointLPS),
+            boundsIJK,
+            imageData,
+            returnPoints: this.configuration.storePointData,
+          }
         );
-
-        //@ts-ignore
         pointsInsideVolume.push(pointsInShape);
       }
     }
@@ -750,7 +763,7 @@ class CircleROIStartEndThresholdTool extends CircleROITool {
       stdDev: stats.stdDev?.value,
       max: stats.max?.value,
       statsArray: stats.array,
-      areaUnit: measureInfo.areaUnits,
+      areaUnit: measureInfo.areaUnit,
       modalityUnit,
     };
   }
@@ -767,6 +780,15 @@ class CircleROIStartEndThresholdTool extends CircleROITool {
     // Since we are extending the RectangleROI class, we need to
     // bring the logic for handle to some cachedStats calculation
     this._computeProjectionPoints(annotation, imageVolume);
+
+    if (this.configuration.calculatePointsInsideVolume) {
+      this._computePointsInsideVolume(
+        annotation,
+        imageVolume,
+        targetId,
+        enabledElement
+      );
+    }
 
     annotation.invalidated = false;
 
@@ -859,9 +881,9 @@ class CircleROIStartEndThresholdTool extends CircleROITool {
  * target volume enclosed by the rectangle.
  *
  * @param data - The annotation tool-specific data.
- * @param targetId - The volumeId of the volume to display the stats for.
+ * @param _context - Associated data to annotation.
  */
-function defaultGetTextLines(data): string[] {
+function defaultGetTextLines(data, _context = {}): string[] {
   const cachedVolumeStats = data.cachedStats.statistics;
 
   const { area, mean, max, stdDev, areaUnit, modalityUnit } = cachedVolumeStats;
@@ -872,10 +894,10 @@ function defaultGetTextLines(data): string[] {
 
   const textLines: string[] = [];
 
-  textLines.push(`Area: ${roundNumber(area)} ${areaUnit}`);
-  textLines.push(`Mean: ${roundNumber(mean)} ${modalityUnit}`);
-  textLines.push(`Max: ${roundNumber(max)} ${modalityUnit}`);
-  textLines.push(`Std Dev: ${roundNumber(stdDev)} ${modalityUnit}`);
+  textLines.push(`Area: ${csUtils.roundNumber(area)} ${areaUnit}`);
+  textLines.push(`Mean: ${csUtils.roundNumber(mean)} ${modalityUnit}`);
+  textLines.push(`Max: ${csUtils.roundNumber(max)} ${modalityUnit}`);
+  textLines.push(`Std Dev: ${csUtils.roundNumber(stdDev)} ${modalityUnit}`);
 
   return textLines;
 }

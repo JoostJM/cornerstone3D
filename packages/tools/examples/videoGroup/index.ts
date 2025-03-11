@@ -1,9 +1,5 @@
-import {
-  RenderingEngine,
-  Types,
-  Enums,
-  eventTarget,
-} from '@cornerstonejs/core';
+import type { Types } from '@cornerstonejs/core';
+import { RenderingEngine, Enums, eventTarget } from '@cornerstonejs/core';
 import {
   addButtonToToolbar,
   initDemo,
@@ -35,13 +31,12 @@ const {
   PanTool,
   ZoomTool,
   VideoRedactionTool,
-  StackScrollMouseWheelTool,
   StackScrollTool,
   ToolGroupManager,
   Enums: csToolsEnums,
 } = cornerstoneTools;
 
-const { annotationFrameRange } = cornerstoneTools.utilities;
+const { AnnotationMultiSlice } = cornerstoneTools.utilities;
 
 const { ViewportType } = Enums;
 const { MouseBindings, KeyboardBindings, Events: toolsEvents } = csToolsEnums;
@@ -175,14 +170,14 @@ addButtonToToolbar({
   onClick() {
     const annotation = getActiveAnnotation();
     if (annotation) {
-      const rangeSelection = annotationFrameRange.getFrameRange(annotation);
+      const rangeSelection = AnnotationMultiSlice.getFrameRange(annotation);
       const frame = viewport.getFrameNumber();
       const range = Array.isArray(rangeSelection)
         ? rangeSelection
         : [rangeSelection, viewport.numberOfFrames];
       range[0] = frame;
       range[1] = Math.max(frame, range[1]);
-      annotationFrameRange.setFrameRange(
+      AnnotationMultiSlice.setFrameRange(
         annotation,
         range as [number, number],
         baseEventDetail
@@ -200,7 +195,7 @@ addButtonToToolbar({
     const annotation = getActiveAnnotation();
     if (annotation) {
       togglePlay(false);
-      annotationFrameRange.setFrameRange(
+      AnnotationMultiSlice.setFrameRange(
         annotation,
         viewport.getFrameNumber(),
         baseEventDetail
@@ -216,14 +211,14 @@ addButtonToToolbar({
   onClick() {
     const annotation = getActiveAnnotation();
     if (annotation) {
-      const rangeSelection = annotationFrameRange.getFrameRange(annotation);
+      const rangeSelection = AnnotationMultiSlice.getFrameRange(annotation);
       const frame = viewport.getFrameNumber();
       const range = Array.isArray(rangeSelection)
         ? rangeSelection
         : [rangeSelection, viewport.getNumberOfSlices()];
       range[1] = frame;
       range[0] = Math.min(frame, range[0]);
-      annotationFrameRange.setFrameRange(
+      AnnotationMultiSlice.setFrameRange(
         annotation,
         range as [number, number],
         baseEventDetail
@@ -256,7 +251,7 @@ function updateAnnotationDiv(uid) {
   selectedAnnotation.annotationUID = uid;
   const { metadata, data } = annotation;
   const { toolName } = metadata;
-  const range = annotationFrameRange.getFrameRange(annotation);
+  const range = AnnotationMultiSlice.getFrameRange(annotation);
   const rangeArr = Array.isArray(range) ? range : [range];
   const { fps } = viewport;
   selectionDiv.innerHTML = `
@@ -309,7 +304,7 @@ function selectNextAnnotation(direction) {
   if (!annotation) {
     return;
   }
-  const range = annotationFrameRange.getFrameRange(annotation);
+  const range = AnnotationMultiSlice.getFrameRange(annotation);
   if (Array.isArray(range)) {
     viewport.setFrameRange(range);
     togglePlay(true);
@@ -333,7 +328,7 @@ async function run() {
     StudyInstanceUID: '2.25.96975534054447904995905761963464388233',
     SeriesInstanceUID: '2.25.15054212212536476297201250326674987992',
     wadoRsRoot:
-      getLocalUrl() || 'https://d33do7qe4w26qo.cloudfront.net/dicomweb',
+      getLocalUrl() || 'https://d14fa38qiwhyfd.cloudfront.net/dicomweb',
   });
 
   // Only one SOP instances is DICOM, so find it
@@ -356,7 +351,6 @@ async function run() {
   cornerstoneTools.addTool(CobbAngleTool);
   cornerstoneTools.addTool(ArrowAnnotateTool);
   cornerstoneTools.addTool(PlanarFreehandROITool);
-  cornerstoneTools.addTool(StackScrollMouseWheelTool);
 
   // Add tools to Cornerstone3D
   cornerstoneTools.addTool(PanTool);

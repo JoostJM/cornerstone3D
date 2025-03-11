@@ -8,25 +8,25 @@ import {
 } from '../../drawingSvg';
 import { getViewportIdsWithToolToRender } from '../../utilities/viewportFilters';
 import { hideElementCursor } from '../../cursors/elementCursor';
-import {
+import type {
+  Annotation,
   EventTypes,
   PublicToolProps,
   SVGDrawingHelper,
   ToolProps,
 } from '../../types';
+import { ChangeTypes, Events } from '../../enums';
+
 import triggerAnnotationRenderForViewportIds from '../../utilities/triggerAnnotationRenderForViewportIds';
 import ProbeTool from './ProbeTool';
-import { ProbeAnnotation } from '../../types/ToolSpecificAnnotationTypes';
-import { StyleSpecifier } from '../../types/AnnotationStyle';
-import { isViewportPreScaled } from '../../utilities/viewport/isViewportPreScaled';
+import type { ProbeAnnotation } from '../../types/ToolSpecificAnnotationTypes';
+import type { StyleSpecifier } from '../../types/AnnotationStyle';
 
 class DragProbeTool extends ProbeTool {
   static toolName;
 
-  touchDragCallback: any;
-  mouseDragCallback: any;
   editData: {
-    annotation: any;
+    annotation: Annotation;
     viewportIdsToRender: string[];
     newAnnotation?: boolean;
   } | null;
@@ -106,7 +106,7 @@ class DragProbeTool extends ProbeTool {
 
     evt.preventDefault();
 
-    triggerAnnotationRenderForViewportIds(renderingEngine, viewportIdsToRender);
+    triggerAnnotationRenderForViewportIds(viewportIdsToRender);
 
     return annotation;
   };
@@ -159,19 +159,9 @@ class DragProbeTool extends ProbeTool {
       styleSpecifier,
     });
 
-    const modalityUnitOptions = {
-      isPreScaled: isViewportPreScaled(viewport, targetId),
-
-      isSuvScaled: this.isSuvScaled(
-        viewport,
-        targetId,
-        annotation.metadata.referencedImageId
-      ),
-    };
-
     if (
       !data.cachedStats[targetId] ||
-      data.cachedStats[targetId].value == null
+      (data.cachedStats[targetId] as Record<string, unknown>).value === null
     ) {
       data.cachedStats[targetId] = {
         Modality: null,

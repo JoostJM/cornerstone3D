@@ -1,4 +1,5 @@
-import { getEnabledElement, Types } from '@cornerstonejs/core';
+import type { Types } from '@cornerstonejs/core';
+import { getEnabledElement } from '@cornerstonejs/core';
 import {
   mouseEventListeners,
   wheelEventListener,
@@ -24,7 +25,7 @@ import { ToolModes } from '../enums';
 import { removeAnnotation } from '../stateManagement';
 import getSynchronizersForViewport from './SynchronizerManager/getSynchronizersForViewport';
 import getToolGroupForViewport from './ToolGroupManager/getToolGroupForViewport';
-import { annotationRenderingEngine } from '../utilities/triggerAnnotationRender';
+import { annotationRenderingEngine } from '../stateManagement/annotation/AnnotationRenderingEngine';
 
 const VIEWPORT_ELEMENT = 'viewport-element';
 
@@ -71,7 +72,9 @@ function removeEnabledElement(
 
 const _removeViewportFromSynchronizers = (element: HTMLDivElement) => {
   const enabledElement = getEnabledElement(element);
-
+  if (!enabledElement) {
+    return;
+  }
   const synchronizers = getSynchronizersForViewport(
     enabledElement.viewportId,
     enabledElement.renderingEngineId
@@ -82,7 +85,11 @@ const _removeViewportFromSynchronizers = (element: HTMLDivElement) => {
 };
 
 const _removeViewportFromToolGroup = (element: HTMLDivElement) => {
-  const { renderingEngineId, viewportId } = getEnabledElement(element);
+  const enabledElement = getEnabledElement(element);
+  if (!enabledElement) {
+    return;
+  }
+  const { renderingEngineId, viewportId } = enabledElement;
 
   const toolGroup = getToolGroupForViewport(viewportId, renderingEngineId);
 

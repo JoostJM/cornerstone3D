@@ -1,7 +1,7 @@
 import { getAnnotations } from '../stateManagement/annotation/annotationState';
-import { ToolAnnotationsPair } from '../types/InternalToolTypes';
+import type { ToolAnnotationsPair } from '../types/InternalToolTypes';
 import type AnnotationTool from '../tools/base/AnnotationTool';
-import BaseTool from '../tools/base/BaseTool';
+import type BaseTool from '../tools/base/BaseTool';
 
 /**
  * Filters an array of tools, returning only tools which have annotation.
@@ -41,7 +41,7 @@ export default function filterToolsWithAnnotationsForElement(
       );
     }
 
-    if (annotations.length > 0) {
+    if (annotations?.length > 0) {
       result.push({ tool, annotations });
     }
   }

@@ -1,43 +1,51 @@
-import { utilities, BaseVolumeViewport } from '@cornerstonejs/core';
-import { Types } from '@cornerstonejs/core';
+import { utilities } from '@cornerstonejs/core';
+import type { Types } from '@cornerstonejs/core';
 import ToolModes from '../../enums/ToolModes';
-import StrategyCallbacks from '../../enums/StrategyCallbacks';
-import { InteractionTypes, ToolProps, PublicToolProps } from '../../types';
+import type StrategyCallbacks from '../../enums/StrategyCallbacks';
+import type { InteractionTypes, ToolProps, PublicToolProps } from '../../types';
 
-export interface IBaseTool {
-  /** ToolGroup ID the tool instance belongs to */
-  toolGroupId: string;
-  /** Tool supported interaction types */
-  supportedInteractionTypes: InteractionTypes[];
-  /** Tool Mode : Active, Passive, Enabled, Disabled */
-  mode: ToolModes;
-  /** Tool Configuration */
-  configuration: {
-    preventHandleOutsideImage?: boolean;
-    strategies?: Record<string, any>;
-    defaultStrategy?: string;
-    activeStrategy?: string;
-    strategyOptions?: Record<string, unknown>;
-  };
-}
+const { DefaultHistoryMemo } = utilities.HistoryMemo;
 
 /**
  * Abstract base class from which all tools derive.
  * Deals with cleanly merging custom and default configuration, and strategy
  * application.
  */
-abstract class BaseTool implements IBaseTool {
+abstract class BaseTool {
   static toolName;
   /** Supported Interaction Types - currently only Mouse */
   public supportedInteractionTypes: InteractionTypes[];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   public configuration: Record<string, any>;
   /** ToolGroup ID the tool instance belongs to */
   public toolGroupId: string;
   /** Tool Mode - Active/Passive/Enabled/Disabled/ */
   public mode: ToolModes;
+  /**
+   * A memo recording the starting state of a tool.  This will be updated
+   * as changes are made, and reflects the fact that a memo has been created.
+   */
+  protected memo: utilities.HistoryMemo.Memo;
+
+  /**
+   * Has the defaults associated with the base tool.
+   */
+  static defaults = {
+    configuration: {
+      strategies: {},
+      defaultStrategy: undefined,
+      activeStrategy: undefined,
+      strategyOptions: {},
+    },
+  };
 
   constructor(toolProps: PublicToolProps, defaultToolProps: ToolProps) {
-    const initialProps = utilities.deepMerge(defaultToolProps, toolProps);
+    const mergedDefaults = BaseTool.mergeDefaultProps(
+      BaseTool.defaults,
+      defaultToolProps
+    );
+
+    const initialProps = utilities.deepMerge(mergedDefaults, toolProps);
 
     const {
       configuration = {},
@@ -45,18 +53,34 @@ abstract class BaseTool implements IBaseTool {
       toolGroupId,
     } = initialProps;
 
-    // If strategies are not initialized in the tool config
-    if (!configuration.strategies) {
-      configuration.strategies = {};
-      configuration.defaultStrategy = undefined;
-      configuration.activeStrategy = undefined;
-      configuration.strategyOptions = {};
-    }
-
     this.toolGroupId = toolGroupId;
     this.supportedInteractionTypes = supportedInteractionTypes || [];
     this.configuration = Object.assign({}, configuration);
     this.mode = ToolModes.Disabled;
+  }
+
+  /**
+   * Does a deep merge of property options.  Allows extending the default values
+   * for a child class.
+   *
+   * @param defaultProps - this is a base set of defaults to merge into
+   * @param additionalProps - the additional properties to merge into the default props
+   *
+   * @returns defaultProps if additional props not defined, or a merge into a new object
+   *     containing additionalProps adding onto and overriding defaultProps.
+   */
+  public static mergeDefaultProps(defaultProps = {}, additionalProps?) {
+    if (!additionalProps) {
+      return defaultProps;
+    }
+    return utilities.deepMerge(defaultProps, additionalProps);
+  }
+
+  /**
+   * Newer method for getting the tool name as a property
+   */
+  public get toolName() {
+    return this.getToolName();
   }
 
   /**
@@ -78,6 +102,7 @@ abstract class BaseTool implements IBaseTool {
   public applyActiveStrategy(
     enabledElement: Types.IEnabledElement,
     operationData: unknown
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
   ): any {
     const { strategies, activeStrategy } = this.configuration;
     return strategies[activeStrategy]?.call(
@@ -101,8 +126,9 @@ abstract class BaseTool implements IBaseTool {
   public applyActiveStrategyCallback(
     enabledElement: Types.IEnabledElement,
     operationData: unknown,
-    callbackType: StrategyCallbacks | string
-  ): any {
+    callbackType: StrategyCallbacks | string,
+    ...extraArgs
+  ) {
     const { strategies, activeStrategy } = this.configuration;
 
     if (!strategies[activeStrategy]) {
@@ -114,7 +140,8 @@ abstract class BaseTool implements IBaseTool {
     return strategies[activeStrategy][callbackType]?.call(
       this,
       enabledElement,
-      operationData
+      operationData,
+      ...extraArgs
     );
   }
 
@@ -122,6 +149,7 @@ abstract class BaseTool implements IBaseTool {
    * merges the new configuration with the tool configuration
    * @param configuration - toolConfiguration
    */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   public setConfiguration(newConfiguration: Record<string, any>): void {
     this.configuration = utilities.deepMerge(
       this.configuration,
@@ -141,58 +169,22 @@ abstract class BaseTool implements IBaseTool {
   }
 
   /**
-   * Returns the volumeId for the volume viewport. It will grabbed the volumeId
-   * from the volumeId if particularly specified in the tool configuration, or if
-   * not, the first actorUID in the viewport is returned as the volumeId. NOTE: for
-   * segmentations, actorUID is not necessarily the volumeId since the segmentation
-   * can have multiple representations, use segmentation helpers to get the volumeId
-   * based on the actorUID.
-   *
-   * @param viewport - Volume viewport
-   * @returns the volumeId for the viewport if specified in the tool configuration,
-   * or the first actorUID in the viewport if not.
-   */
-  protected getTargetVolumeId(viewport: Types.IViewport): string | undefined {
-    if (this.configuration.volumeId) {
-      return this.configuration.volumeId;
-    }
-
-    // If volume not specified, then return the actorUID for the
-    // default actor - first actor
-    const actorEntries = viewport.getActors();
-
-    if (!actorEntries) {
-      return;
-    }
-
-    // find the first image actor of instance type vtkVolume
-    return actorEntries.find(
-      (actorEntry) => actorEntry.actor.getClassName() === 'vtkVolume'
-    )?.uid;
-  }
-
-  /**
    * Get the image that is displayed for the targetId in the cachedStats
    * which can be
-   * * imageId:<imageId>
-   * * volumeId:<volumeId>
-   * * videoId:<basePathForVideo>/frames/<frameSpecifier>
+   * * `imageId:<imageId>`
+   * * `volumeId:<volumeId>`
+   * * `videoId:<basePathForVideo>/frames/<frameSpecifier>`
    *
    * @param targetId - annotation targetId stored in the cached stats
-   * @param renderingEngine - The rendering engine
    * @returns The image data for the target.
    */
-  protected getTargetIdImage(
-    targetId: string,
-    renderingEngine: Types.IRenderingEngine
-  ): Types.IImageData | Types.CPUIImageData | Types.IImageVolume {
+  protected getTargetImageData(
+    targetId: string
+  ): Types.IImageData | Types.CPUIImageData {
     if (targetId.startsWith('imageId:')) {
       const imageId = targetId.split('imageId:')[1];
       const imageURI = utilities.imageIdToURI(imageId);
-      let viewports = utilities.getViewportsWithImageURI(
-        imageURI,
-        renderingEngine.id
-      );
+      let viewports = utilities.getViewportsWithImageURI(imageURI);
 
       if (!viewports || !viewports.length) {
         return;
@@ -209,10 +201,7 @@ abstract class BaseTool implements IBaseTool {
       return viewports[0].getImageData();
     } else if (targetId.startsWith('volumeId:')) {
       const volumeId = utilities.getVolumeId(targetId);
-      const viewports = utilities.getViewportsWithVolumeId(
-        volumeId,
-        renderingEngine.id
-      );
+      const viewports = utilities.getViewportsWithVolumeId(volumeId);
 
       if (!viewports || !viewports.length) {
         return;
@@ -222,10 +211,7 @@ abstract class BaseTool implements IBaseTool {
     } else if (targetId.startsWith('videoId:')) {
       // Video id can be multi-valued for the frame information
       const imageURI = utilities.imageIdToURI(targetId);
-      const viewports = utilities.getViewportsWithImageURI(
-        imageURI,
-        renderingEngine.id
-      );
+      const viewports = utilities.getViewportsWithImageURI(imageURI);
 
       if (!viewports || !viewports.length) {
         return;
@@ -250,14 +236,77 @@ abstract class BaseTool implements IBaseTool {
    * @returns targetId
    */
   protected getTargetId(viewport: Types.IViewport): string | undefined {
-    const targetId = viewport.getReferenceId?.();
+    const targetId = viewport.getViewReferenceId?.();
     if (targetId) {
       return targetId;
     }
-    if (viewport instanceof BaseVolumeViewport) {
-      return `volumeId:${this.getTargetVolumeId(viewport)}`;
+    throw new Error(
+      'getTargetId: viewport must have a getViewReferenceId method'
+    );
+  }
+
+  /**
+   * Undoes an action
+   */
+  public undo() {
+    // It is possible a user has started another action here, so ensure that one
+    // gets completed/stored correctly.  Normally this only occurs if the user
+    // starts an undo while dragging.
+    this.doneEditMemo();
+    DefaultHistoryMemo.undo();
+  }
+  /**
+   * Redo an action (undo the undo)
+   */
+  public redo() {
+    DefaultHistoryMemo.redo();
+  }
+
+  /**
+   * Creates a zoom/pan memo that remembers the original zoom/pan position for
+   * the given viewport.
+   */
+  public static createZoomPanMemo(viewport) {
+    // TODO - move this to view callback as a utility
+    const state = {
+      pan: viewport.getPan(),
+      zoom: viewport.getZoom(),
+    };
+    const zoomPanMemo = {
+      restoreMemo: () => {
+        const currentPan = viewport.getPan();
+        const currentZoom = viewport.getZoom();
+        viewport.setZoom(state.zoom);
+        viewport.setPan(state.pan);
+        viewport.render();
+        state.pan = currentPan;
+        state.zoom = currentZoom;
+      },
+    };
+    DefaultHistoryMemo.push(zoomPanMemo);
+    return zoomPanMemo;
+  }
+
+  /**
+   * This clears and edit memo storage to allow for further history functions
+   * to be called.  Calls the complete function if present, and pushes the
+   * memo to the history memo stack.
+   *
+   * This should be called when a tool has finished making a change which should be
+   * separated from future/other changes in terms of the history.
+   * Usually that means on endCallback (mouse up), but some tools also make changes
+   * on the initial creation of an object or have alternate flows and the doneEditMemo
+   * has to be called on mouse down or other initiation events to ensure that new
+   * changes are correctly recorded.
+   *
+   * If the tool has no end callback, then the doneEditMemo is called from the
+   * pre mouse down callback.  See ZoomTool for an example of this usage.
+   */
+  public doneEditMemo() {
+    if (this.memo?.commitMemo?.()) {
+      DefaultHistoryMemo.push(this.memo);
     }
-    throw new Error('getTargetId: viewport must have a getReferenceId method');
+    this.memo = null;
   }
 }
 

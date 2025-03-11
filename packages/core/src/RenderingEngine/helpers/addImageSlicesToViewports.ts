@@ -2,6 +2,7 @@ import type {
   IStackViewport,
   IStackInput,
   IRenderingEngine,
+  IVideoViewport,
 } from '../../types';
 
 /**
@@ -16,21 +17,20 @@ import type {
  * @param immediateRender - If true, the volumes will be rendered immediately
  * @returns A promise that resolves when all volumes have been added
  */
-async function addImageSlicesToViewports(
+function addImageSlicesToViewports(
   renderingEngine: IRenderingEngine,
-  stackInputs: Array<IStackInput>,
-  viewportIds: Array<string>
+  stackInputs: IStackInput[],
+  viewportIds: string[]
 ): Promise<void> {
-  // Check if all viewports are volumeViewports
   for (const viewportId of viewportIds) {
-    const viewport = renderingEngine.getViewport(viewportId);
+    const viewport = renderingEngine.getViewport(viewportId) as IStackViewport;
 
     if (!viewport) {
       throw new Error(`Viewport with Id ${viewportId} does not exist`);
     }
 
-    // if not instance of BaseVolumeViewport, throw
-    if (!(viewport as IStackViewport).addImages) {
+    // if the viewport does not support addImages, log a warning and skip
+    if (!viewport.addImages) {
       console.warn(
         `Viewport with Id ${viewportId} does not have addImages. Cannot add image segmentation to this viewport.`
       );
@@ -39,13 +39,12 @@ async function addImageSlicesToViewports(
     }
   }
 
-  const addStackPromises = viewportIds.map(async (viewportId) => {
-    const viewport = renderingEngine.getViewport(viewportId) as IStackViewport;
-
-    return viewport.addImages(stackInputs);
+  viewportIds.forEach((viewportId) => {
+    const viewport = renderingEngine.getViewport(viewportId) as
+      | IStackViewport
+      | IVideoViewport;
+    viewport.addImages(stackInputs);
   });
-
-  await Promise.all(addStackPromises);
 }
 
 export default addImageSlicesToViewports;

@@ -2,13 +2,13 @@ import { init, destroy } from './init';
 import {
   addTool,
   removeTool,
-  state,
   ToolGroupManager,
   SynchronizerManager,
   Synchronizer,
   cancelActiveManipulations,
 } from './store';
-
+import { state } from './store/state';
+import * as store from './store';
 import * as CONSTANTS from './constants';
 
 // Name spaces
@@ -19,6 +19,7 @@ import * as cursors from './cursors';
 import * as Types from './types';
 import * as annotation from './stateManagement/annotation';
 import * as segmentation from './stateManagement/segmentation';
+import * as splines from './tools/annotation/splines';
 
 import {
   BaseTool,
@@ -31,8 +32,6 @@ import {
   ZoomTool,
   StackScrollTool,
   PlanarRotateTool,
-  StackScrollMouseWheelTool,
-  VolumeRotateMouseWheelTool,
   MIPJumpToClickTool,
   LengthTool,
   HeightTool,
@@ -40,6 +39,7 @@ import {
   RectangleROITool,
   EllipticalROITool,
   CircleROITool,
+  ETDRSGridTool,
   SplineROITool,
   SplineContourSegmentationTool,
   BidirectionalTool,
@@ -58,7 +58,6 @@ import {
   RectangleROIThresholdTool,
   RectangleROIStartEndThresholdTool,
   CircleROIStartEndThresholdTool,
-  SegmentationDisplayTool,
   BrushTool,
   AngleTool,
   CobbAngleTool,
@@ -66,7 +65,6 @@ import {
   MagnifyTool,
   AdvancedMagnifyTool,
   ReferenceCursors,
-  ReferenceLines,
   PaintFillTool,
   ScaleOverlayTool,
   OrientationMarkerTool,
@@ -76,6 +74,11 @@ import {
   SculptorTool,
   SegmentSelectTool,
   WindowLevelRegionTool,
+  VolumeRotateTool,
+  RegionSegmentPlusTool,
+  RegionSegmentTool,
+  WholeBodySegmentTool,
+  LabelmapBaseTool,
 } from './tools';
 
 import VideoRedactionTool from './tools/annotation/VideoRedactionTool';
@@ -103,8 +106,6 @@ export {
   ZoomTool,
   StackScrollTool,
   PlanarRotateTool,
-  StackScrollMouseWheelTool,
-  VolumeRotateMouseWheelTool,
   MIPJumpToClickTool,
   // Annotation Tools
   LengthTool,
@@ -118,6 +119,7 @@ export {
   RectangleROITool,
   EllipticalROITool,
   CircleROITool,
+  ETDRSGridTool,
   SplineROITool,
   SplineContourSegmentationTool,
   BidirectionalTool,
@@ -133,12 +135,10 @@ export {
   MagnifyTool,
   AdvancedMagnifyTool,
   ReferenceCursors,
-  ReferenceLines,
   ScaleOverlayTool,
   SculptorTool,
   EraserTool,
   // Segmentation Display
-  SegmentationDisplayTool,
   // Segmentation Editing Tools
   RectangleScissorsTool,
   CircleScissorsTool,
@@ -158,6 +158,8 @@ export {
   state,
   // ToolGroups
   ToolGroupManager,
+  // tools,
+  store,
   // Enums
   Enums,
   // Constants
@@ -171,4 +173,11 @@ export {
   // Utilities
   utilities,
   cursors,
+  VolumeRotateTool,
+  RegionSegmentPlusTool,
+  RegionSegmentTool,
+  WholeBodySegmentTool,
+  LabelmapBaseTool,
+  // Spline classes
+  splines,
 };

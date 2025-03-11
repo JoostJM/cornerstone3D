@@ -1,7 +1,7 @@
 import { vec3 } from 'gl-matrix';
 import { CONSTANTS, metaData } from '@cornerstonejs/core';
 import type { Types } from '@cornerstonejs/core';
-import { Annotations, Annotation } from '../../types';
+import type { Annotations, Annotation } from '../../types';
 
 const { EPSILON } = CONSTANTS;
 
@@ -83,7 +83,9 @@ export default function filterAnnotationsWithinSlice(
 
   for (const annotation of annotationsWithParallelNormals) {
     const data = annotation.data;
-    const point = data.handles.points[0];
+
+    // @ts-expect-error
+    const point = data.handles.points[0] || data.contour?.polyline[0];
 
     if (!annotation.isVisible) {
       continue;
@@ -96,6 +98,13 @@ export default function filterAnnotationsWithinSlice(
     // this should be less than half the slice distance.
 
     const dir = vec3.create();
+
+    // If the handles has no values, eg a key image or other annotation, it
+    // should just be included.
+    if (!point) {
+      annotationsWithinSlice.push(annotation);
+      continue;
+    }
 
     vec3.sub(dir, focalPoint, point);
 

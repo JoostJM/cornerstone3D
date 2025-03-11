@@ -1,7 +1,7 @@
 import { vec3, vec2 } from 'gl-matrix';
 import { getEnabledElement } from '@cornerstonejs/core';
 import type { Types } from '@cornerstonejs/core';
-import { state } from '../../../store';
+import { state } from '../../../store/state';
 import { Events } from '../../../enums';
 import {
   resetElementCursor,
@@ -56,6 +56,7 @@ function activateClosedContourEdit(
     editCanvasPoints: [canvasPos],
     startCrossingIndex: undefined,
     editIndex: 0,
+    annotation,
   };
 
   this.commonData = {
@@ -146,10 +147,13 @@ function mouseDragClosedContourEditCallback(
   const worldPos = currentPoints.world;
   const canvasPos = currentPoints.canvas;
   const enabledElement = getEnabledElement(element);
-  const { renderingEngine, viewport } = enabledElement;
+  const { viewport } = enabledElement;
 
   const { viewportIdsToRender, xDir, yDir, spacing } = this.commonData;
-  const { editIndex, editCanvasPoints, startCrossingIndex } = this.editData;
+  const { editIndex, editCanvasPoints, startCrossingIndex, annotation } =
+    this.editData;
+
+  this.createMemo(element, annotation);
 
   const lastCanvasPoint = editCanvasPoints[editCanvasPoints.length - 1];
   const lastWorldPoint = viewport.canvasToWorld(lastCanvasPoint);
@@ -210,7 +214,7 @@ function mouseDragClosedContourEditCallback(
     this.finishEditAndStartNewEdit(evt);
   }
 
-  triggerAnnotationRenderForViewportIds(renderingEngine, viewportIdsToRender);
+  triggerAnnotationRenderForViewportIds(viewportIdsToRender);
 }
 
 /**
@@ -250,9 +254,10 @@ function finishEditAndStartNewEdit(evt: EventTypes.InteractionEventType): void {
     startCrossingIndex: undefined,
     editIndex: 0,
     snapIndex: undefined,
+    annotation,
   };
 
-  triggerAnnotationRenderForViewportIds(renderingEngine, viewportIdsToRender);
+  triggerAnnotationRenderForViewportIds(viewportIdsToRender);
 }
 
 /**
@@ -438,9 +443,10 @@ function mouseUpClosedContourEditCallback(
  */
 function completeClosedContourEdit(element: HTMLDivElement) {
   const enabledElement = getEnabledElement(element);
-  const { viewport, renderingEngine } = enabledElement;
+  const { viewport } = enabledElement;
 
   const { annotation, viewportIdsToRender } = this.commonData;
+  this.doneEditMemo();
   const { fusedCanvasPoints, prevCanvasPoints } = this.editData;
 
   if (fusedCanvasPoints) {
@@ -482,7 +488,7 @@ function completeClosedContourEdit(element: HTMLDivElement) {
   this.editData = undefined;
   this.commonData = undefined;
 
-  triggerAnnotationRenderForViewportIds(renderingEngine, viewportIdsToRender);
+  triggerAnnotationRenderForViewportIds(viewportIdsToRender);
 
   this.deactivateClosedContourEdit(element);
 }

@@ -5,9 +5,7 @@ import WindowLevelTool from './WindowLevelTool';
 import WindowLevelRegionTool from './WindowLevelRegionTool';
 import StackScrollTool from './StackScrollTool';
 import PlanarRotateTool from './PlanarRotateTool';
-import StackScrollMouseWheelTool from './StackScrollToolMouseWheelTool';
 import ZoomTool from './ZoomTool';
-import VolumeRotateMouseWheelTool from './VolumeRotateMouseWheelTool';
 import MIPJumpToClickTool from './MIPJumpToClickTool';
 import CrosshairsTool from './CrosshairsTool';
 import MagnifyTool from './MagnifyTool';
@@ -16,10 +14,10 @@ import ReferenceLinesTool from './ReferenceLinesTool';
 import OverlayGridTool from './OverlayGridTool';
 import SegmentationIntersectionTool from './SegmentationIntersectionTool';
 import ReferenceCursors from './ReferenceCursors';
-import ReferenceLines from './ReferenceLinesTool';
 import ReferenceProbe from './ReferenceProbe';
 import ScaleOverlayTool from './ScaleOverlayTool';
 import SculptorTool from './SculptorTool';
+import VolumeRotateTool from './VolumeRotateTool';
 
 // Annotation tools
 import BidirectionalTool from './annotation/BidirectionalTool';
@@ -30,6 +28,7 @@ import DragProbeTool from './annotation/DragProbeTool';
 import RectangleROITool from './annotation/RectangleROITool';
 import EllipticalROITool from './annotation/EllipticalROITool';
 import CircleROITool from './annotation/CircleROITool';
+import ETDRSGridTool from './annotation/ETDRSGridTool';
 import SplineROITool from './annotation/SplineROITool';
 import SplineContourSegmentationTool from './annotation/SplineContourSegmentationTool';
 import PlanarFreehandROITool from './annotation/PlanarFreehandROITool';
@@ -42,9 +41,10 @@ import CobbAngleTool from './annotation/CobbAngleTool';
 import UltrasoundDirectionalTool from './annotation/UltrasoundDirectionalTool';
 import KeyImageTool from './annotation/KeyImageTool';
 import AnnotationEraserTool from './AnnotationEraserTool';
-
-// Segmentation DisplayTool
-import SegmentationDisplayTool from './displayTools/SegmentationDisplayTool';
+import RegionSegmentTool from './annotation/RegionSegmentTool';
+import RegionSegmentPlusTool from './annotation/RegionSegmentPlusTool';
+import WholeBodySegmentTool from './annotation/WholeBodySegmentTool';
+import LabelmapBaseTool from './segmentation/LabelmapBaseTool';
 
 // Segmentation Tools
 import RectangleScissorsTool from './segmentation/RectangleScissorsTool';
@@ -57,6 +57,8 @@ import BrushTool from './segmentation/BrushTool';
 import PaintFillTool from './segmentation/PaintFillTool';
 import OrientationMarkerTool from './OrientationMarkerTool';
 import SegmentSelectTool from './segmentation/SegmentSelectTool';
+
+import * as strategies from './segmentation/strategies';
 
 export {
   // ~~ BASE
@@ -71,9 +73,7 @@ export {
   WindowLevelRegionTool,
   StackScrollTool,
   PlanarRotateTool,
-  StackScrollMouseWheelTool,
   ZoomTool,
-  VolumeRotateMouseWheelTool,
   MIPJumpToClickTool,
   ReferenceCursors,
   // Annotation Tools
@@ -89,6 +89,7 @@ export {
   RectangleROITool,
   EllipticalROITool,
   CircleROITool,
+  ETDRSGridTool,
   SplineROITool,
   PlanarFreehandROITool,
   PlanarFreehandContourSegmentationTool,
@@ -101,7 +102,7 @@ export {
   KeyImageTool,
   AnnotationEraserTool as EraserTool,
   // Segmentations Display
-  SegmentationDisplayTool,
+
   // Segmentations Tools
   RectangleScissorsTool,
   CircleScissorsTool,
@@ -113,10 +114,15 @@ export {
   BrushTool,
   MagnifyTool,
   AdvancedMagnifyTool,
-  ReferenceLines,
   PaintFillTool,
   ScaleOverlayTool,
   OrientationMarkerTool,
   SculptorTool,
   SegmentSelectTool,
+  VolumeRotateTool,
+  RegionSegmentTool,
+  RegionSegmentPlusTool,
+  WholeBodySegmentTool,
+  LabelmapBaseTool,
+  strategies,
 };

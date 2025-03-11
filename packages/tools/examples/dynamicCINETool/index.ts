@@ -1,7 +1,7 @@
 import cornerstoneDICOMImageLoader from '@cornerstonejs/dicom-image-loader';
+import type { Types } from '@cornerstonejs/core';
 import {
   RenderingEngine,
-  Types,
   Enums,
   volumeLoader,
   setVolumesForViewports,
@@ -25,14 +25,14 @@ console.warn(
 const {
   PanTool,
   ZoomTool,
-  StackScrollMouseWheelTool,
+  StackScrollTool,
   CrosshairsTool,
   ToolGroupManager,
   Enums: csToolsEnums,
   utilities: csToolsUtilities,
 } = cornerstoneTools;
 
-const MAX_NUM_TIMEPOINTS = 40;
+const MAX_NUM_DIMENSION_GROUPS = 40;
 
 // If needed a checkbox may be added to the UI instead
 const dynamicCineEnabled = true;
@@ -70,14 +70,14 @@ let activeElement = null;
 // ======== Set up page ======== //
 setTitleAndDescription(
   'CINE Tool - 4D Volumes',
-  'Show the usage of the CINE Tool and 4D volumes.'
+  'Show the usage of the CINE Tool and 4D volumes with dimension groups.'
 );
 
 function initLayout() {
   const content = document.getElementById('content');
   const stagesContainer = document.createElement('div');
   const firstStageContainer = createFirstStageLayout({
-    onLoadTimePoints: loadTimePoints,
+    onLoadDimensionGroups: loadDimensionGroups,
   });
 
   const secondStageContainer = createSecondStageLayout({
@@ -228,26 +228,25 @@ function initViewports(volume, elements) {
   return viewportIds;
 }
 
-async function createVolume(numTimePoints: number): any {
+async function createVolume(numDimensionGroups: number): Promise<any> {
   const { metaDataManager } = cornerstoneDICOMImageLoader.wadors;
 
-  if (numTimePoints < 1 || numTimePoints > MAX_NUM_TIMEPOINTS) {
-    throw new Error('numTimePoints is out of range');
+  if (numDimensionGroups < 1 || numDimensionGroups > MAX_NUM_DIMENSION_GROUPS) {
+    throw new Error('Number of dimension groups is out of range');
   }
 
   let imageIds = await createImageIdsAndCacheMetaData({
-    StudyInstanceUID:
-      '1.3.6.1.4.1.12842.1.1.14.3.20220915.105557.468.2963630849',
-    SeriesInstanceUID:
-      '1.3.6.1.4.1.12842.1.1.22.4.20220915.124758.560.4125514885',
-    wadoRsRoot: 'https://d33do7qe4w26qo.cloudfront.net/dicomweb',
+    StudyInstanceUID: '2.25.232704420736447710317909004159492840763',
+    SeriesInstanceUID: '2.25.16992883200578135914239363565496792012',
+    wadoRsRoot: 'https://d14fa38qiwhyfd.cloudfront.net/dicomweb',
   });
 
-  const NUM_IMAGES_PER_TIME_POINT = 235;
-  const TOTAL_NUM_IMAGES = MAX_NUM_TIMEPOINTS * NUM_IMAGES_PER_TIME_POINT;
-  const numImagesToLoad = numTimePoints * NUM_IMAGES_PER_TIME_POINT;
+  const NUM_IMAGES_PER_DIMENSION_GROUP = 235;
+  const TOTAL_NUM_IMAGES =
+    MAX_NUM_DIMENSION_GROUPS * NUM_IMAGES_PER_DIMENSION_GROUP;
+  const numImagesToLoad = numDimensionGroups * NUM_IMAGES_PER_DIMENSION_GROUP;
 
-  // Load the last N time points because they have a better image quality
+  // Load the last N dimension groups because they have a better image quality
   // and first ones are white or contains only a few black pixels
   const firstInstanceNumber = TOTAL_NUM_IMAGES - numImagesToLoad + 1;
 
@@ -293,7 +292,7 @@ function getReferenceLineSlabThicknessControlsOn(viewportId) {
 function initCornerstoneTools() {
   cornerstoneTools.addTool(PanTool);
   cornerstoneTools.addTool(ZoomTool);
-  cornerstoneTools.addTool(StackScrollMouseWheelTool);
+  cornerstoneTools.addTool(StackScrollTool);
 }
 
 function initCrosshairsTool(toolGroup) {
@@ -315,7 +314,7 @@ function initTools(toolGroup, options?) {
   // Add the tools to the tool group
   toolGroup.addTool(PanTool.toolName);
   toolGroup.addTool(ZoomTool.toolName);
-  toolGroup.addTool(StackScrollMouseWheelTool.toolName);
+  toolGroup.addTool(StackScrollTool.toolName);
 
   toolGroup.setToolActive(PanTool.toolName, {
     bindings: [{ mouseButton: MouseBindings.Auxiliary }],
@@ -325,7 +324,9 @@ function initTools(toolGroup, options?) {
     bindings: [{ mouseButton: MouseBindings.Secondary }],
   });
 
-  toolGroup.setToolActive(StackScrollMouseWheelTool.toolName);
+  toolGroup.setToolActive(StackScrollTool.toolName, {
+    bindings: [{ mouseButton: MouseBindings.Wheel }],
+  });
 
   if ((options ?? {}).initCrosshairsTool === true) {
     initCrosshairsTool(toolGroup);
@@ -344,7 +345,7 @@ function createToolGroups() {
 
   // Set the tool group on the viewport. Add only the first three viewports
   // because crosshairs can work with up to three viewports
-  viewportIds.slice(0, 3).forEach((viewportId, i) => {
+  viewportIds.slice(0, 3).forEach((viewportId) => {
     mprToolGroup.addViewport(viewportId, renderingEngineId);
   });
 
@@ -356,7 +357,7 @@ function createToolGroups() {
 /**
  * Runs the demo
  */
-async function loadTimePoints(numTimePoints) {
+async function loadDimensionGroups(numDimensionGroups: number): Promise<void> {
   // Init Cornerstone and related libraries
   await initDemo();
 
@@ -367,7 +368,7 @@ async function loadTimePoints(numTimePoints) {
   const elements = initViewportLayout();
 
   // Create and load PT volume
-  const volume = await createVolume(numTimePoints);
+  const volume = await createVolume(numDimensionGroups);
 
   // Initialize cornerstone viewports
   initViewports(volume, elements);
@@ -383,14 +384,18 @@ async function loadTimePoints(numTimePoints) {
 }
 
 function startCine() {
-  csToolsUtilities.cine.playClip(activeElement, {
-    framesPerSecond,
-    dynamicCineEnabled,
-  });
+  if (activeElement) {
+    csToolsUtilities.cine.playClip(activeElement, {
+      framesPerSecond,
+      dynamicCineEnabled,
+    });
+  }
 }
 
 function stopCine() {
-  csToolsUtilities.cine.stopClip(activeElement);
+  if (activeElement) {
+    csToolsUtilities.cine.stopClip(activeElement);
+  }
 }
 
 function onFramesPerSecondUpdated(value) {
@@ -402,7 +407,7 @@ function onFramesPerSecondUpdated(value) {
  * Updated active element's style and stores it
  * @param element - Cornerstone element
  */
-function setActiveElement(element) {
+function setActiveElement(element: HTMLDivElement) {
   if (activeElement) {
     activeElement.style.border = inactiveViewportBorder;
   }
@@ -413,15 +418,19 @@ function setActiveElement(element) {
   const { framesPerSecond: fps = defaultFramesPerSecond } =
     csToolsUtilities.cine.getToolState(activeElement) ?? {};
 
-  const fpsSliderElem = <HTMLInputElement>document.querySelector('#fpsSlider');
-  const fpsSliderLabelElem = <HTMLElement>(
-    document.querySelector('#fpsSlider-label')
-  );
+  const fpsSliderElem = document.querySelector(
+    '#fpsSlider'
+  ) as HTMLInputElement;
+  const fpsSliderLabelElem = document.querySelector(
+    '#fpsSlider-label'
+  ) as HTMLElement;
 
   // Update all FPS related inputs/vars
   framesPerSecond = fps;
-  fpsSliderElem.value = fps.toString();
-  fpsSliderLabelElem.innerText = ` Time points per second: ${fps}`;
+  if (fpsSliderElem && fpsSliderLabelElem) {
+    fpsSliderElem.value = fps.toString();
+    fpsSliderLabelElem.innerText = ` Frames per second: ${fps}`;
+  }
 }
 
 initLayout();

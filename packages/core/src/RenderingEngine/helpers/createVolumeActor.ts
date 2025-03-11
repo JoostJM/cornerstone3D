@@ -1,13 +1,14 @@
 import vtkVolume from '@kitware/vtk.js/Rendering/Core/Volume';
 
-import { VolumeActor } from './../../types/IActor';
-import { VoiModifiedEventDetail } from './../../types/EventTypes';
+import type { VolumeActor } from './../../types/IActor';
+import type { VoiModifiedEventDetail } from './../../types/EventTypes';
 import { loadVolume } from '../../loaders/volumeLoader';
 import createVolumeMapper from './createVolumeMapper';
-import BlendModes from '../../enums/BlendModes';
-import { triggerEvent } from '../../utilities';
+import type BlendModes from '../../enums/BlendModes';
+import triggerEvent from '../../utilities/triggerEvent';
 import { Events } from '../../enums';
 import setDefaultVolumeVOI from './setDefaultVolumeVOI';
+import type { BlendMode } from '@kitware/vtk.js/Rendering/Core/VolumeMapper/Constants';
 
 interface createVolumeActorInterface {
   volumeId: string;
@@ -22,19 +23,21 @@ interface createVolumeActorInterface {
 }
 
 /**
- * Given a volumeId, it creates a vtk volume actor and returns it. If
- * callback is provided, it will be called with the volume actor and the
- * volumeId. If blendMode is provided, it will be set on the volume actor.
+ * Creates a volume actor based on the provided properties.
  *
- * @param props - createVolumeActorInterface
- * @returns A promise that resolves to a VolumeActor.
+ * @param props - The properties for creating the volume actor.
+ * @param element - The HTMLDivElement where the volume actor will be rendered.
+ * @param viewportId - The ID of the viewport where the volume actor will be displayed.
+ * @param suppressEvents - Optional. Specifies whether to suppress triggering events. Default is false.
+ * @param useNativeDataType - Optional. Specifies whether to use the native data type. Default is false.
+ * @returns A promise that resolves to the created volume actor.
+ * @throws An error if the imageVolume with the specified ID does not exist.
  */
 async function createVolumeActor(
   props: createVolumeActorInterface,
   element: HTMLDivElement,
   viewportId: string,
-  suppressEvents = false,
-  useNativeDataType = false
+  suppressEvents = false
 ): Promise<VolumeActor> {
   const { volumeId, callback, blendMode } = props;
 
@@ -51,22 +54,25 @@ async function createVolumeActor(
   const volumeMapper = createVolumeMapper(imageData, vtkOpenGLTexture);
 
   if (blendMode) {
-    volumeMapper.setBlendMode(blendMode);
+    volumeMapper.setBlendMode(blendMode as unknown as BlendMode);
   }
 
   const volumeActor = vtkVolume.newInstance();
   volumeActor.setMapper(volumeMapper);
 
-  const numberOfComponents = imageData
-    .getPointData()
-    .getScalars()
-    .getNumberOfComponents();
+  // Todo: fix this for 3D RGB
+  const { numberOfComponents } = imageData.get('numberOfComponents') as {
+    numberOfComponents: number;
+  };
+
+  const volumeProperty = volumeActor.getProperty();
+  volumeProperty.set({ viewportId: viewportId });
 
   if (numberOfComponents === 3) {
     volumeActor.getProperty().setIndependentComponents(false);
   }
 
-  await setDefaultVolumeVOI(volumeActor, imageVolume, useNativeDataType);
+  await setDefaultVolumeVOI(volumeActor, imageVolume);
 
   if (callback) {
     callback({ volumeActor, volumeId });

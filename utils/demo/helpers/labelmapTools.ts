@@ -16,12 +16,21 @@ const preview = {
   enabled: true,
   previewColors,
 };
+
 const configuration = {
   preview,
   strategySpecificConfiguration: {
-    useCenterSegmentIndex: true,
+    useCenterSegmentIndex: false,
   },
 };
+
+const configurationNoPreview = {
+  preview: { enabled: false, previewColors },
+  strategySpecificConfiguration: {
+    useCenterSegmentIndex: false,
+  },
+};
+
 const thresholdOptions = new Map();
 thresholdOptions.set('Dynamic Radius 0', { isDynamic: true, dynamicRadius: 0 });
 thresholdOptions.set('Dynamic Radius 1', { isDynamic: true, dynamicRadius: 1 });
@@ -57,10 +66,22 @@ toolMap.set('ThresholdCircle', {
   },
 });
 
-toolMap.set('CircularBrush', {
+toolMap.set('ThresholdSphere', {
   baseTool: BrushTool.toolName,
   configuration: {
     ...configuration,
+    activeStrategy: 'THRESHOLD_INSIDE_SPHERE_WITH_ISLAND_REMOVAL',
+    strategySpecificConfiguration: {
+      ...configuration.strategySpecificConfiguration,
+      THRESHOLD: { ...thresholdArgs },
+    },
+  },
+});
+
+toolMap.set('CircularBrush', {
+  baseTool: BrushTool.toolName,
+  configuration: {
+    ...configurationNoPreview,
     activeStrategy: 'FILL_INSIDE_CIRCLE',
   },
 });
@@ -68,7 +89,7 @@ toolMap.set('CircularBrush', {
 toolMap.set('CircularEraser', {
   baseTool: BrushTool.toolName,
   configuration: {
-    ...configuration,
+    ...configurationNoPreview,
     activeStrategy: 'ERASE_INSIDE_CIRCLE',
   },
 });
@@ -76,28 +97,28 @@ toolMap.set('CircularEraser', {
 toolMap.set('SphereBrush', {
   baseTool: BrushTool.toolName,
   configuration: {
-    ...configuration,
+    ...configurationNoPreview,
     activeStrategy: 'FILL_INSIDE_SPHERE',
   },
 });
 toolMap.set('SphereEraser', {
   baseTool: BrushTool.toolName,
   configuration: {
-    ...configuration,
+    ...configurationNoPreview,
     activeStrategy: 'ERASE_INSIDE_SPHERE',
   },
 });
 toolMap.set(RectangleScissorsTool.toolName, { tool: RectangleScissorsTool });
 toolMap.set(CircleScissorsTool.toolName, { tool: CircleScissorsTool });
 toolMap.set(SphereScissorsTool.toolName, { tool: SphereScissorsTool });
-toolMap.set('ScissorsEraser', {
+toolMap.set('SphereScissorsEraser', {
   baseTool: SphereScissorsTool.toolName,
   configuration: {
-    ...configuration,
+    ...configurationNoPreview,
     activeStrategy: 'ERASE_INSIDE',
   },
 });
-toolMap.set(PaintFillTool.toolName, {});
+toolMap.set(PaintFillTool.toolName, { tool: PaintFillTool });
 
 const labelmapTools = {
   toolMap,

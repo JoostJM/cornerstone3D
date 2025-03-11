@@ -1,21 +1,21 @@
 import { vec3, vec2 } from 'gl-matrix';
 import { getEnabledElement } from '@cornerstonejs/core';
 import type { Types } from '@cornerstonejs/core';
-import { state } from '../../../store';
+import { state } from '../../../store/state';
 import { Events } from '../../../enums';
 import {
   resetElementCursor,
   hideElementCursor,
 } from '../../../cursors/elementCursor';
 import type { EventTypes } from '../../../types';
-import { PlanarFreehandROIAnnotation } from '../../../types/ToolSpecificAnnotationTypes';
+import type { PlanarFreehandROIAnnotation } from '../../../types/ToolSpecificAnnotationTypes';
 import { polyline } from '../../../utilities/math';
 import {
   shouldSmooth,
   getInterpolatedPoints,
 } from '../../../utilities/planarFreehandROITool/smoothPoints';
 import triggerAnnotationRenderForViewportIds from '../../../utilities/triggerAnnotationRenderForViewportIds';
-import { updateContourPolyline } from '../../../utilities/contours';
+import updateContourPolyline from '../../../utilities/contours/updateContourPolyline';
 import findOpenUShapedContourVectorToPeak from './findOpenUShapedContourVectorToPeak';
 import { triggerAnnotationModified } from '../../../stateManagement/annotation/helpers/state';
 
@@ -36,6 +36,7 @@ function activateOpenContourEdit(
   const canvasPos = currentPoints.canvas;
   const enabledElement = getEnabledElement(element);
   const { viewport } = enabledElement;
+  this.doneEditMemo();
 
   const prevCanvasPoints = annotation.data.contour.polyline.map(
     viewport.worldToCanvas
@@ -139,7 +140,7 @@ function mouseDragOpenContourEditCallback(
   const worldPos = currentPoints.world;
   const canvasPos = currentPoints.canvas;
   const enabledElement = getEnabledElement(element);
-  const { renderingEngine, viewport } = enabledElement;
+  const { viewport } = enabledElement;
 
   const { viewportIdsToRender, xDir, yDir, spacing } = this.commonData;
   const { editIndex, editCanvasPoints, startCrossingIndex } = this.editData;
@@ -148,6 +149,8 @@ function mouseDragOpenContourEditCallback(
   const lastWorldPoint = viewport.canvasToWorld(lastCanvasPoint);
 
   const worldPosDiff = vec3.create();
+
+  this.createMemo(element, this.commonData.annotation);
 
   vec3.subtract(worldPosDiff, worldPos, lastWorldPoint);
 
@@ -197,7 +200,7 @@ function mouseDragOpenContourEditCallback(
     this.openContourEditOverwriteEnd(evt);
   }
 
-  triggerAnnotationRenderForViewportIds(renderingEngine, viewportIdsToRender);
+  triggerAnnotationRenderForViewportIds(viewportIdsToRender);
 }
 
 /**
@@ -238,6 +241,8 @@ function openContourEditOverwriteEnd(
   this.isEditingOpen = false;
   this.editData = undefined;
   this.commonData = undefined;
+
+  this.doneEditMemo();
 
   // Jump to a normal line edit now.
   this.deactivateOpenContourEdit(element);
@@ -528,7 +533,7 @@ function finishEditOpenOnSecondCrossing(
     editIndex: 0,
   };
 
-  triggerAnnotationRenderForViewportIds(renderingEngine, viewportIdsToRender);
+  triggerAnnotationRenderForViewportIds(viewportIdsToRender);
 }
 
 /**
@@ -548,9 +553,11 @@ function mouseUpOpenContourEditCallback(
  */
 function completeOpenContourEdit(element: HTMLDivElement) {
   const enabledElement = getEnabledElement(element);
-  const { viewport, renderingEngine } = enabledElement;
+  const { viewport } = enabledElement;
 
   const { annotation, viewportIdsToRender } = this.commonData;
+
+  this.doneEditMemo();
   const { fusedCanvasPoints, prevCanvasPoints } = this.editData;
 
   if (fusedCanvasPoints) {
@@ -599,7 +606,7 @@ function completeOpenContourEdit(element: HTMLDivElement) {
   this.editData = undefined;
   this.commonData = undefined;
 
-  triggerAnnotationRenderForViewportIds(renderingEngine, viewportIdsToRender);
+  triggerAnnotationRenderForViewportIds(viewportIdsToRender);
 
   this.deactivateOpenContourEdit(element);
 }

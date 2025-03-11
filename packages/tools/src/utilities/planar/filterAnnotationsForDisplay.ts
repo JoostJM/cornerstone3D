@@ -1,7 +1,7 @@
+import type { Types } from '@cornerstonejs/core';
 import {
   StackViewport,
   VolumeViewport,
-  Types,
   utilities as csUtils,
 } from '@cornerstonejs/core';
 
@@ -35,6 +35,10 @@ export default function filterAnnotationsForDisplay(
   if (viewport instanceof StackViewport) {
     // 1. Get the currently displayed imageId from the StackViewport
     const imageId = viewport.getCurrentImageId();
+
+    if (!imageId) {
+      return [];
+    }
 
     // 2. remove the dataLoader scheme since it might be an annotation that was
     // created on the volumeViewport initially and has the volumeLoader scheme

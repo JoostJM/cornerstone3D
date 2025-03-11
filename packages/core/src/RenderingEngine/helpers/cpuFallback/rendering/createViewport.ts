@@ -1,8 +1,9 @@
 import { state } from './setDefaultViewport';
-import {
+import type {
   CPUFallbackViewportDisplayedArea,
   CPUFallbackViewport,
 } from '../../../../types';
+import { VOILUTFunctionType } from '../../../../enums';
 
 // eslint-disable-next-line valid-jsdoc
 /**
@@ -47,6 +48,7 @@ export default function createViewport(): CPUFallbackViewport {
     voi: {
       windowWidth: undefined,
       windowCenter: undefined,
+      voiLUTFunction: VOILUTFunctionType.LINEAR,
     },
     invert: false,
     pixelReplication: false,

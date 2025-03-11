@@ -1,6 +1,6 @@
 import type { InitializedOperationData } from '../BrushStrategy';
-import pointInShapeCallback from '../../../../utilities/pointInShapeCallback';
 import StrategyCallbacks from '../../../../enums/StrategyCallbacks';
+import type { Types } from '@cornerstonejs/core';
 
 /**
  * This function determines whether to fill or erase based on what the user
@@ -36,10 +36,10 @@ export default {
     const {
       segmentIndex,
       previewSegmentIndex,
-      segmentationVoxelManager: segmentationVoxelManager,
+      segmentationVoxelManager,
       centerIJK,
       strategySpecificConfiguration,
-      imageVoxelManager: imageVoxelManager,
+      viewPlaneNormal,
       segmentationImageData,
       preview,
     } = operationData;
@@ -51,17 +51,29 @@ export default {
 
     let hasSegmentIndex = false;
     let hasPreviewIndex = false;
+
+    const nestedBounds = <Types.BoundsIJK>[
+      ...segmentationVoxelManager.getBoundsIJK(),
+    ];
+
+    if (Math.abs(viewPlaneNormal[0]) > 0.8) {
+      nestedBounds[0] = [centerIJK[0], centerIJK[0]];
+    } else if (Math.abs(viewPlaneNormal[1]) > 0.8) {
+      nestedBounds[1] = [centerIJK[1], centerIJK[1]];
+    } else if (Math.abs(viewPlaneNormal[2]) > 0.8) {
+      nestedBounds[2] = [centerIJK[2], centerIJK[2]];
+    }
+
     const callback = ({ value }) => {
       hasSegmentIndex ||= value === segmentIndex;
       hasPreviewIndex ||= value === previewSegmentIndex;
     };
 
-    pointInShapeCallback(
-      segmentationImageData as unknown,
-      imageVoxelManager.isInObject,
-      callback,
-      segmentationVoxelManager.boundsIJK
-    );
+    segmentationVoxelManager.forEach(callback, {
+      imageData: segmentationImageData,
+      isInObject: operationData.isInObject,
+      boundsIJK: nestedBounds,
+    });
 
     if (!hasSegmentIndex && !hasPreviewIndex) {
       return;

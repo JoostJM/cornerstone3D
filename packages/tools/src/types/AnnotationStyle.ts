@@ -12,10 +12,21 @@ type Properties =
   | 'textBoxColor'
   | 'textBoxBackground'
   | 'textBoxLinkLineWidth'
-  | 'textBoxLinkLineDash';
+  | 'textBoxLinkLineDash'
+  | 'locked'
+  | 'fillColor'
+  | 'fillOpacity'
+  | 'textbox'
+  | 'shadow'
+  | 'visibility'
+  | 'markerSize';
 
 export type AnnotationStyle = {
-  [key in `${Properties}${States}${Modes}`]?: string;
+  [key in `${Properties}${States}${Modes}`]?:
+    | string
+    | number
+    | boolean
+    | Record<string, unknown>;
 };
 
 export type ToolStyleConfig = {

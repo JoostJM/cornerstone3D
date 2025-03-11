@@ -1,11 +1,13 @@
+import type { Types } from '@cornerstonejs/core';
 import {
-  VolumeViewport,
   utilities as csUtils,
-  cache,
   StackViewport,
+  VolumeViewport,
 } from '@cornerstonejs/core';
 
-function extractWindowLevelRegionToolData(viewport) {
+function extractWindowLevelRegionToolData(
+  viewport: Types.IVolumeViewport | Types.IStackViewport
+) {
   if (viewport instanceof VolumeViewport) {
     return extractImageDataVolume(viewport);
   }
@@ -16,30 +18,24 @@ function extractWindowLevelRegionToolData(viewport) {
   throw new Error('Viewport not supported');
 }
 
-function extractImageDataVolume(viewport) {
+function extractImageDataVolume(viewport: Types.IVolumeViewport) {
   const { scalarData, width, height } =
     csUtils.getCurrentVolumeViewportSlice(viewport);
   const { min: minPixelValue, max: maxPixelValue } =
     csUtils.getMinMax(scalarData);
-  const volumeId = viewport.getVolumeId();
-  const volume = cache.getVolume(volumeId);
-  // @ts-ignore
-  const { metadata, cornerstoneImageMetaData } = volume;
-  const { Rows: rows, Columns: columns } = metadata;
-  const { color } = cornerstoneImageMetaData;
   return {
     scalarData,
-    width,
-    height,
     minPixelValue,
     maxPixelValue,
-    rows,
-    columns,
-    color,
+    width,
+    height,
+    rows: width,
+    columns: height,
+    // color,
   };
 }
 
-function extractImageDataStack(viewport) {
+function extractImageDataStack(viewport: Types.IStackViewport) {
   const imageData = viewport.getImageData();
   const { scalarData } = imageData;
   const { min: minPixelValue, max: maxPixelValue } =

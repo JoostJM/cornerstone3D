@@ -20,7 +20,7 @@ import {
   drawHandles as drawHandlesSvg,
   drawRedactionRect as drawRedactionRectSvg,
 } from '../../drawingSvg';
-import { state } from '../../store';
+import { state } from '../../store/state';
 import { Events } from '../../enums';
 import { getViewportIdsWithToolToRender } from '../../utilities/viewportFilters';
 import * as rectangle from '../../utilities/math/rectangle';
@@ -30,21 +30,20 @@ import {
 } from '../../cursors/elementCursor';
 import triggerAnnotationRenderForViewportIds from '../../utilities/triggerAnnotationRenderForViewportIds';
 
-import { EventTypes, SVGDrawingHelper } from '../../types';
-import { StyleSpecifier } from '../../types/AnnotationStyle';
+import type { Annotation, EventTypes, SVGDrawingHelper } from '../../types';
+import type { StyleSpecifier } from '../../types/AnnotationStyle';
 import getWorldWidthAndHeightFromTwoPoints from '../../utilities/planar/getWorldWidthAndHeightFromTwoPoints';
-import { VideoRedactionAnnotation } from '../../types/ToolSpecificAnnotationTypes';
+import type { VideoRedactionAnnotation } from '../../types/ToolSpecificAnnotationTypes';
 
 class VideoRedactionTool extends AnnotationTool {
-  _throttledCalculateCachedStats: any;
+  _throttledCalculateCachedStats: Function;
   editData: {
-    annotation: any;
+    annotation: Annotation;
     viewportUIDsToRender: string[];
     handleIndex?: number;
     newAnnotation?: boolean;
     hasMoved?: boolean;
   } | null;
-  _configuration: any;
   isDrawing: boolean;
   isHandleOutsideImage: boolean;
 
@@ -69,44 +68,25 @@ class VideoRedactionTool extends AnnotationTool {
     const worldPos = currentPoints.world;
 
     const enabledElement = getEnabledElement(element);
-    const { viewport, renderingEngine } = enabledElement;
+    const { viewport } = enabledElement;
 
     this.isDrawing = true;
-
-    const camera = viewport.getCamera();
-    const { viewPlaneNormal, viewUp } = camera;
-    const referencedImageId = this.getReferencedImageId(
-      viewport,
-      worldPos,
-      viewPlaneNormal,
-      viewUp
-    );
-
-    const annotation = {
-      metadata: {
-        // We probably just want a different type of data here, hacking this
-        // together for now.
-        viewPlaneNormal: <Types.Point3>[0, 0, 1],
-        viewUp: <Types.Point3>[0, 1, 0],
-        FrameOfReferenceUID: viewport.getFrameOfReferenceUID(),
-        referencedImageId,
-        toolName: this.getToolName(),
-      },
-      data: {
-        invalidated: true,
-        handles: {
-          points: [
-            <Types.Point3>[...worldPos],
-            <Types.Point3>[...worldPos],
-            <Types.Point3>[...worldPos],
-            <Types.Point3>[...worldPos],
-          ],
-          activeHandleIndex: null,
-        },
-        cachedStats: {},
-        active: true,
-      },
-    };
+    const annotation =
+      VideoRedactionTool.createAnnotationForViewport<VideoRedactionAnnotation>(
+        viewport,
+        {
+          data: {
+            handles: {
+              points: [
+                <Types.Point3>[...worldPos],
+                <Types.Point3>[...worldPos],
+                <Types.Point3>[...worldPos],
+                <Types.Point3>[...worldPos],
+              ],
+            },
+          },
+        }
+      );
 
     addAnnotation(annotation, element);
 
@@ -129,10 +109,7 @@ class VideoRedactionTool extends AnnotationTool {
 
     evt.preventDefault();
 
-    triggerAnnotationRenderForViewportIds(
-      renderingEngine,
-      viewportUIDsToRender
-    );
+    triggerAnnotationRenderForViewportIds(viewportUIDsToRender);
 
     return annotation;
   };
@@ -211,13 +188,7 @@ class VideoRedactionTool extends AnnotationTool {
 
     hideElementCursor(element);
 
-    const enabledElement = getEnabledElement(element);
-    const { renderingEngine } = enabledElement;
-
-    triggerAnnotationRenderForViewportIds(
-      renderingEngine,
-      viewportUIDsToRender
-    );
+    triggerAnnotationRenderForViewportIds(viewportUIDsToRender);
 
     evt.preventDefault();
   };
@@ -259,18 +230,12 @@ class VideoRedactionTool extends AnnotationTool {
 
     hideElementCursor(element);
 
-    const enabledElement = getEnabledElement(element);
-    const { renderingEngine } = enabledElement;
-
-    triggerAnnotationRenderForViewportIds(
-      renderingEngine,
-      viewportUIDsToRender
-    );
+    triggerAnnotationRenderForViewportIds(viewportUIDsToRender);
 
     evt.preventDefault();
   };
 
-  _mouseUpCallback = (evt) => {
+  _endCallback = (evt) => {
     const eventData = evt.detail;
     const { element } = eventData;
 
@@ -282,6 +247,8 @@ class VideoRedactionTool extends AnnotationTool {
       return;
     }
 
+    this.doneEditMemo();
+
     data.active = false;
     data.handles.activeHandleIndex = null;
 
@@ -289,9 +256,6 @@ class VideoRedactionTool extends AnnotationTool {
     this._deactivateDraw(element);
 
     resetElementCursor(element);
-
-    const enabledElement = getEnabledElement(element);
-    const { renderingEngine } = enabledElement;
 
     this.editData = null;
     this.isDrawing = false;
@@ -303,19 +267,19 @@ class VideoRedactionTool extends AnnotationTool {
       removeAnnotation(annotation.annotationUID);
     }
 
-    triggerAnnotationRenderForViewportIds(
-      renderingEngine,
-      viewportUIDsToRender
-    );
+    triggerAnnotationRenderForViewportIds(viewportUIDsToRender);
   };
 
-  _mouseDragCallback = (evt) => {
+  _dragCallback = (evt) => {
     this.isDrawing = true;
 
     const eventData = evt.detail;
     const { element } = eventData;
 
-    const { annotation, viewportUIDsToRender, handleIndex } = this.editData;
+    const { annotation, viewportUIDsToRender, handleIndex, newAnnotation } =
+      this.editData;
+    this.createMemo(element, annotation, { newAnnotation });
+
     const { data } = annotation;
 
     if (handleIndex === undefined) {
@@ -341,6 +305,7 @@ class VideoRedactionTool extends AnnotationTool {
       const { points } = data.handles;
 
       // Move this handle.
+      // @ts-expect-error
       points[handleIndex] = [...worldPos];
 
       let bottomLeftCanvas;
@@ -400,12 +365,8 @@ class VideoRedactionTool extends AnnotationTool {
     this.editData.hasMoved = true;
 
     const enabledElement = getEnabledElement(element);
-    const { renderingEngine } = enabledElement;
 
-    triggerAnnotationRenderForViewportIds(
-      renderingEngine,
-      viewportUIDsToRender
-    );
+    triggerAnnotationRenderForViewportIds(viewportUIDsToRender);
   };
 
   cancel(element) {
@@ -425,15 +386,10 @@ class VideoRedactionTool extends AnnotationTool {
     data.active = false;
     data.handles.activeHandleIndex = null;
 
-    const enabledElement = getEnabledElement(element);
-    const { renderingEngine } = enabledElement;
-
-    triggerAnnotationRenderForViewportIds(
-      renderingEngine,
-      viewportUIDsToRender
-    );
+    triggerAnnotationRenderForViewportIds(viewportUIDsToRender);
 
     this.editData = null;
+    // @ts-expect-error
     return annotation.metadata.annotationUID;
   }
   /**
@@ -442,13 +398,13 @@ class VideoRedactionTool extends AnnotationTool {
   _activateDraw = (element) => {
     state.isInteractingWithTool = true;
 
-    element.addEventListener(Events.MOUSE_UP, this._mouseUpCallback);
-    element.addEventListener(Events.MOUSE_DRAG, this._mouseDragCallback);
-    element.addEventListener(Events.MOUSE_MOVE, this._mouseDragCallback);
-    element.addEventListener(Events.MOUSE_CLICK, this._mouseUpCallback);
+    element.addEventListener(Events.MOUSE_UP, this._endCallback);
+    element.addEventListener(Events.MOUSE_DRAG, this._dragCallback);
+    element.addEventListener(Events.MOUSE_MOVE, this._dragCallback);
+    element.addEventListener(Events.MOUSE_CLICK, this._endCallback);
 
-    element.addEventListener(Events.TOUCH_END, this._mouseUpCallback);
-    element.addEventListener(Events.TOUCH_DRAG, this._mouseDragCallback);
+    element.addEventListener(Events.TOUCH_END, this._endCallback);
+    element.addEventListener(Events.TOUCH_DRAG, this._dragCallback);
   };
 
   /**
@@ -457,13 +413,13 @@ class VideoRedactionTool extends AnnotationTool {
   _deactivateDraw = (element) => {
     state.isInteractingWithTool = false;
 
-    element.removeEventListener(Events.MOUSE_UP, this._mouseUpCallback);
-    element.removeEventListener(Events.MOUSE_DRAG, this._mouseDragCallback);
-    element.removeEventListener(Events.MOUSE_MOVE, this._mouseDragCallback);
-    element.removeEventListener(Events.MOUSE_CLICK, this._mouseUpCallback);
+    element.removeEventListener(Events.MOUSE_UP, this._endCallback);
+    element.removeEventListener(Events.MOUSE_DRAG, this._dragCallback);
+    element.removeEventListener(Events.MOUSE_MOVE, this._dragCallback);
+    element.removeEventListener(Events.MOUSE_CLICK, this._endCallback);
 
-    element.removeEventListener(Events.TOUCH_END, this._mouseUpCallback);
-    element.removeEventListener(Events.TOUCH_DRAG, this._mouseDragCallback);
+    element.removeEventListener(Events.TOUCH_END, this._endCallback);
+    element.removeEventListener(Events.TOUCH_DRAG, this._dragCallback);
   };
 
   /**
@@ -472,12 +428,12 @@ class VideoRedactionTool extends AnnotationTool {
   _activateModify = (element) => {
     state.isInteractingWithTool = true;
 
-    element.addEventListener(Events.MOUSE_UP, this._mouseUpCallback);
-    element.addEventListener(Events.MOUSE_DRAG, this._mouseDragCallback);
-    element.addEventListener(Events.MOUSE_CLICK, this._mouseUpCallback);
+    element.addEventListener(Events.MOUSE_UP, this._endCallback);
+    element.addEventListener(Events.MOUSE_DRAG, this._dragCallback);
+    element.addEventListener(Events.MOUSE_CLICK, this._endCallback);
 
-    element.addEventListener(Events.TOUCH_END, this._mouseUpCallback);
-    element.addEventListener(Events.TOUCH_DRAG, this._mouseDragCallback);
+    element.addEventListener(Events.TOUCH_END, this._endCallback);
+    element.addEventListener(Events.TOUCH_DRAG, this._dragCallback);
   };
 
   /**
@@ -486,12 +442,12 @@ class VideoRedactionTool extends AnnotationTool {
   _deactivateModify = (element) => {
     state.isInteractingWithTool = false;
 
-    element.removeEventListener(Events.MOUSE_UP, this._mouseUpCallback);
-    element.removeEventListener(Events.MOUSE_DRAG, this._mouseDragCallback);
-    element.removeEventListener(Events.MOUSE_CLICK, this._mouseUpCallback);
+    element.removeEventListener(Events.MOUSE_UP, this._endCallback);
+    element.removeEventListener(Events.MOUSE_DRAG, this._dragCallback);
+    element.removeEventListener(Events.MOUSE_CLICK, this._endCallback);
 
-    element.removeEventListener(Events.TOUCH_END, this._mouseUpCallback);
-    element.removeEventListener(Events.TOUCH_DRAG, this._mouseDragCallback);
+    element.removeEventListener(Events.TOUCH_END, this._endCallback);
+    element.removeEventListener(Events.TOUCH_DRAG, this._dragCallback);
   };
 
   renderAnnotation = (
@@ -517,9 +473,6 @@ class VideoRedactionTool extends AnnotationTool {
       return renderStatus;
     }
 
-    const targetId = this.getTargetId(viewport);
-    const renderingEngine = viewport.getRenderingEngine();
-
     const styleSpecifier: StyleSpecifier = {
       toolGroupId: this.toolGroupId,
       toolName: this.getToolName(),
@@ -529,7 +482,6 @@ class VideoRedactionTool extends AnnotationTool {
     for (let i = 0; i < annotations.length; i++) {
       const annotation = annotations[i];
       const { annotationUID } = annotation;
-      const toolMetadata = annotation.metadata;
 
       const data = annotation.data;
       const { points, activeHandleIndex } = data.handles;

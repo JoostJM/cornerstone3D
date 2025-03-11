@@ -6,7 +6,9 @@ import {
     derivations
 } from "dcmjs";
 import ndarray from "ndarray";
-import cloneDeep from "lodash.clonedeep";
+import getDatasetsFromImages from "../helpers/getDatasetsFromImages";
+import checkOrientation from "../helpers/checkOrientation";
+import compareArrays from "../helpers/compareArrays";
 
 import { Events } from "../enums";
 
@@ -14,15 +16,13 @@ const {
     rotateDirectionCosinesInPlane,
     flipImageOrientationPatient: flipIOP,
     flipMatrix2D,
-    rotateMatrix902D,
-    nearlyEqual
+    rotateMatrix902D
 } = utilities.orientation;
 
 const { BitArray, DicomMessage, DicomMetaDictionary } = dcmjsData;
 
 const { Normalizer } = normalizers;
 const { Segmentation: SegmentationDerivation } = derivations;
-
 const { encode, decode } = utilities.compression;
 
 /**
@@ -47,7 +47,11 @@ const generateSegmentationDefaultOptions = {
  * @param  {Object} userOptions Options to pass to the segmentation derivation and `fillSegmentation`.
  * @returns {Blob}
  */
-function generateSegmentation(images, inputLabelmaps3D, userOptions = {}) {
+export function generateSegmentation(
+    images,
+    inputLabelmaps3D,
+    userOptions = {}
+) {
     const isMultiframe = images[0].imageId.includes("?frame");
     const segmentation = _createSegFromImages(
         images,
@@ -67,7 +71,11 @@ function generateSegmentation(images, inputLabelmaps3D, userOptions = {}) {
  *
  * @returns {object} The filled segmentation object.
  */
-function fillSegmentation(segmentation, inputLabelmaps3D, userOptions = {}) {
+export function fillSegmentation(
+    segmentation,
+    inputLabelmaps3D,
+    userOptions = {}
+) {
     const options = Object.assign(
         {},
         generateSegmentationDefaultOptions,
@@ -194,7 +202,7 @@ function fillSegmentation(segmentation, inputLabelmaps3D, userOptions = {}) {
     return segmentation;
 }
 
-function _getLabelmapsFromReferencedFrameIndicies(
+export function _getLabelmapsFromReferencedFrameIndicies(
     labelmap3D,
     referencedFrameIndicies
 ) {
@@ -218,44 +226,17 @@ function _getLabelmapsFromReferencedFrameIndicies(
  * @param  {Boolean} isMultiframe Whether the images are multiframe.
  * @returns {Object}              The Seg derived dataSet.
  */
-function _createSegFromImages(images, isMultiframe, options) {
-    const datasets = [];
-
-    if (isMultiframe) {
-        const image = images[0];
-        const arrayBuffer = image.data.byteArray.buffer;
-
-        const dicomData = DicomMessage.readFile(arrayBuffer);
-        const dataset = DicomMetaDictionary.naturalizeDataset(dicomData.dict);
-
-        dataset._meta = DicomMetaDictionary.namifyDataset(dicomData.meta);
-        dataset.SpecificCharacterSet = "ISO_IR 192";
-        datasets.push(dataset);
-    } else {
-        for (let i = 0; i < images.length; i++) {
-            const image = images[i];
-            const arrayBuffer = image.data.byteArray.buffer;
-            const dicomData = DicomMessage.readFile(arrayBuffer);
-            const dataset = DicomMetaDictionary.naturalizeDataset(
-                dicomData.dict
-            );
-
-            dataset._meta = DicomMetaDictionary.namifyDataset(dicomData.meta);
-            dataset.SpecificCharacterSet = "ISO_IR 192";
-            datasets.push(dataset);
-        }
-    }
-
-    const multiframe = Normalizer.normalizeToDataset(datasets);
+export function _createSegFromImages(images, isMultiframe, options) {
+    const multiframe = getDatasetsFromImages(images, isMultiframe);
 
     return new SegmentationDerivation([multiframe], options);
 }
 
 /**
- * generateToolState - Given a set of cornrstoneTools imageIds and a Segmentation buffer,
+ * generateToolState - Given a set of cornerstoneTools imageIds and a Segmentation buffer,
  * derive cornerstoneTools toolState and brush metadata.
  *
- * @param  {string[]} imageIds - An array of the imageIds.
+ * @param  {string[]} referencedImageIds - An array for referenced image imageIds.
  * @param  {ArrayBuffer} arrayBuffer - The SEG arrayBuffer.
  * @param  {*} metadataProvider.
  * @param  {obj} options - Options object.
@@ -266,8 +247,8 @@ function _createSegFromImages(images, isMultiframe, options) {
  * @return {[][][]} 3D list containing the track of segments per frame for each labelMap
  *                  (available only for the overlapping case).
  */
-async function generateToolState(
-    imageIds,
+export async function generateToolState(
+    referencedImageIds,
     arrayBuffer,
     metadataProvider,
     options
@@ -277,8 +258,8 @@ async function generateToolState(
         tolerance = 1e-3,
         TypedArrayConstructor = Uint8Array,
         maxBytesPerChunk = 199000000,
-        eventTarget,
-        triggerEvent
+        eventTarget = null,
+        triggerEvent = null
     } = options;
     const dicomData = DicomMessage.readFile(arrayBuffer);
     const dataset = DicomMetaDictionary.naturalizeDataset(dicomData.dict);
@@ -287,12 +268,12 @@ async function generateToolState(
 
     const imagePlaneModule = metadataProvider.get(
         "imagePlaneModule",
-        imageIds[0]
+        referencedImageIds[0]
     );
 
     const generalSeriesModule = metadataProvider.get(
         "generalSeriesModule",
-        imageIds[0]
+        referencedImageIds[0]
     );
 
     const SeriesInstanceUID = generalSeriesModule.seriesInstanceUID;
@@ -353,14 +334,18 @@ async function generateToolState(
     const orientation = checkOrientation(
         multiframe,
         validOrientations,
-        [imagePlaneModule.rows, imagePlaneModule.columns, imageIds.length],
+        [
+            imagePlaneModule.rows,
+            imagePlaneModule.columns,
+            referencedImageIds.length
+        ],
         tolerance
     );
 
     // Pre-compute the sop UID to imageId index map so that in the for loop
     // we don't have to call metadataProvider.get() for each imageId over
     // and over again.
-    const sopUIDImageIdIndexMap = imageIds.reduce((acc, imageId) => {
+    const sopUIDImageIdIndexMap = referencedImageIds.reduce((acc, imageId) => {
         const { sopInstanceUID } = metadataProvider.get(
             "generalImageModule",
             imageId
@@ -374,7 +359,7 @@ async function generateToolState(
         overlapping = checkSEGsOverlapping(
             pixelDataChunks,
             multiframe,
-            imageIds,
+            referencedImageIds,
             validOrientations,
             metadataProvider,
             tolerance,
@@ -415,13 +400,15 @@ async function generateToolState(
     const segmentsOnFrame = [];
 
     const arrayBufferLength =
-        sliceLength * imageIds.length * TypedArrayConstructor.BYTES_PER_ELEMENT;
+        sliceLength *
+        referencedImageIds.length *
+        TypedArrayConstructor.BYTES_PER_ELEMENT;
     const labelmapBufferArray = [];
     labelmapBufferArray[0] = new ArrayBuffer(arrayBufferLength);
 
     // Pre-compute the indices and metadata so that we don't have to call
     // a function for each imageId in the for loop.
-    const imageIdMaps = imageIds.reduce(
+    const imageIdMaps = referencedImageIds.reduce(
         (acc, curr, index) => {
             acc.indices[curr] = index;
             acc.metadata[curr] = metadataProvider.get("instance", curr);
@@ -442,7 +429,7 @@ async function generateToolState(
         labelmapBufferArray,
         pixelDataChunks,
         multiframe,
-        imageIds,
+        referencedImageIds,
         validOrientations,
         metadataProvider,
         tolerance,
@@ -458,16 +445,14 @@ async function generateToolState(
     const centroidXYZ = new Map();
 
     segmentsPixelIndices.forEach((imageIdIndexBufferIndex, segmentIndex) => {
-        const { xAcc, yAcc, zAcc, count } = calculateCentroid(
+        const centroids = calculateCentroid(
             imageIdIndexBufferIndex,
-            multiframe
+            multiframe,
+            metadataProvider,
+            referencedImageIds
         );
 
-        centroidXYZ.set(segmentIndex, {
-            x: Math.floor(xAcc / count),
-            y: Math.floor(yAcc / count),
-            z: Math.floor(zAcc / count)
-        });
+        centroidXYZ.set(segmentIndex, centroids);
     });
 
     return {
@@ -662,7 +647,7 @@ async function generateToolState(
  *
  * @returns {String}     Returns the imageId
  */
-function findReferenceSourceImageId(
+export function findReferenceSourceImageId(
     multiframe,
     frameSegment,
     imageIds,
@@ -759,7 +744,7 @@ function findReferenceSourceImageId(
  *  @returns {boolean} Returns a flag if segmentations overlapping
  */
 
-function checkSEGsOverlapping(
+export function checkSEGsOverlapping(
     pixelData,
     multiframe,
     imageIds,
@@ -890,7 +875,7 @@ function checkSEGsOverlapping(
     return false;
 }
 
-function insertOverlappingPixelDataPlanar(
+export function insertOverlappingPixelDataPlanar(
     segmentsOnFrame,
     segmentsOnFrameArray,
     labelmapBufferArray,
@@ -929,7 +914,7 @@ function insertOverlappingPixelDataPlanar(
     let tempBuffer = labelmapBufferArray[m].slice(0);
 
     // temp list for checking overlaps
-    let tempSegmentsOnFrame = cloneDeep(segmentsOnFrameArray[m]);
+    let tempSegmentsOnFrame = structuredClone(segmentsOnFrameArray[m]);
 
     /** split overlapping SEGs algorithm for each segment:
      *  A) copy the labelmapBuffer in the array with index 0
@@ -1055,7 +1040,7 @@ function insertOverlappingPixelDataPlanar(
                             M++;
                         }
                         tempBuffer = labelmapBufferArray[m].slice(0);
-                        tempSegmentsOnFrame = cloneDeep(
+                        tempSegmentsOnFrame = structuredClone(
                             segmentsOnFrameArray[m]
                         );
 
@@ -1084,16 +1069,16 @@ function insertOverlappingPixelDataPlanar(
         }
 
         labelmapBufferArray[m] = tempBuffer.slice(0);
-        segmentsOnFrameArray[m] = cloneDeep(tempSegmentsOnFrame);
+        segmentsOnFrameArray[m] = structuredClone(tempSegmentsOnFrame);
 
         // reset temp variables/buffers for new segment
         m = 0;
         tempBuffer = labelmapBufferArray[m].slice(0);
-        tempSegmentsOnFrame = cloneDeep(segmentsOnFrameArray[m]);
+        tempSegmentsOnFrame = structuredClone(segmentsOnFrameArray[m]);
     }
 }
 
-const getSegmentIndex = (multiframe, frame) => {
+export const getSegmentIndex = (multiframe, frame) => {
     const { PerFrameFunctionalGroupsSequence, SharedFunctionalGroupsSequence } =
         multiframe;
     const PerFrameFunctionalGroups = PerFrameFunctionalGroupsSequence[frame];
@@ -1107,7 +1092,7 @@ const getSegmentIndex = (multiframe, frame) => {
         : undefined;
 };
 
-function insertPixelDataPlanar(
+export function insertPixelDataPlanar(
     segmentsOnFrame,
     segmentsOnFrameArray,
     labelmapBufferArray,
@@ -1293,74 +1278,6 @@ function insertPixelDataPlanar(
     });
 }
 
-function checkOrientation(
-    multiframe,
-    validOrientations,
-    sourceDataDimensions,
-    tolerance
-) {
-    const { SharedFunctionalGroupsSequence, PerFrameFunctionalGroupsSequence } =
-        multiframe;
-
-    const sharedImageOrientationPatient =
-        SharedFunctionalGroupsSequence.PlaneOrientationSequence
-            ? SharedFunctionalGroupsSequence.PlaneOrientationSequence
-                  .ImageOrientationPatient
-            : undefined;
-
-    // Check if in plane.
-    const PerFrameFunctionalGroups = PerFrameFunctionalGroupsSequence[0];
-
-    const iop =
-        sharedImageOrientationPatient ||
-        PerFrameFunctionalGroups.PlaneOrientationSequence
-            .ImageOrientationPatient;
-
-    const inPlane = validOrientations.some(operation =>
-        compareArrays(iop, operation, tolerance)
-    );
-
-    if (inPlane) {
-        return "Planar";
-    }
-
-    if (
-        checkIfPerpendicular(iop, validOrientations[0], tolerance) &&
-        sourceDataDimensions.includes(multiframe.Rows) &&
-        sourceDataDimensions.includes(multiframe.Columns)
-    ) {
-        // Perpendicular and fits on same grid.
-        return "Perpendicular";
-    }
-
-    return "Oblique";
-}
-
-/**
- * checkIfPerpendicular - Returns true if iop1 and iop2 are perpendicular
- * within a tolerance.
- *
- * @param  {Number[6]} iop1 An ImageOrientationPatient array.
- * @param  {Number[6]} iop2 An ImageOrientationPatient array.
- * @param  {Number} tolerance.
- * @return {Boolean} True if iop1 and iop2 are equal.
- */
-function checkIfPerpendicular(iop1, iop2, tolerance) {
-    const absDotColumnCosines = Math.abs(
-        iop1[0] * iop2[0] + iop1[1] * iop2[1] + iop1[2] * iop2[2]
-    );
-    const absDotRowCosines = Math.abs(
-        iop1[3] * iop2[3] + iop1[4] * iop2[4] + iop1[5] * iop2[5]
-    );
-
-    return (
-        (absDotColumnCosines < tolerance ||
-            Math.abs(absDotColumnCosines - 1) < tolerance) &&
-        (absDotRowCosines < tolerance ||
-            Math.abs(absDotRowCosines - 1) < tolerance)
-    );
-}
-
 /**
  * unpackPixelData - Unpacks bit packed pixelData if the Segmentation is BINARY.
  *
@@ -1368,7 +1285,7 @@ function checkIfPerpendicular(iop1, iop2, tolerance) {
  * @param  {Object} options    Options for the unpacking.
  * @return {Uint8Array}      The unpacked pixelData.
  */
-function unpackPixelData(multiframe, options) {
+export function unpackPixelData(multiframe, options) {
     const segType = multiframe.SegmentationType;
 
     let data;
@@ -1379,7 +1296,7 @@ function unpackPixelData(multiframe, options) {
     }
 
     if (data === undefined) {
-        log.error("This segmentation pixeldata is undefined.");
+        log.error("This segmentation pixelData is undefined.");
     }
 
     if (segType === "BINARY") {
@@ -1408,7 +1325,7 @@ function unpackPixelData(multiframe, options) {
     return pixelData;
 }
 
-function getUnpackedChunks(data, maxBytesPerChunk) {
+export function getUnpackedChunks(data, maxBytesPerChunk) {
     var bitArray = new Uint8Array(data);
     var chunks = [];
 
@@ -1439,7 +1356,7 @@ function getUnpackedChunks(data, maxBytesPerChunk) {
  * @param  {Object}   sopUIDImageIdIndexMap A map of SOPInstanceUIDs to imageIds.
  * @return {String}                        The corresponding imageId.
  */
-function getImageIdOfSourceImageBySourceImageSequence(
+export function getImageIdOfSourceImageBySourceImageSequence(
     SourceImageSequence,
     sopUIDImageIdIndexMap
 ) {
@@ -1467,7 +1384,7 @@ function getImageIdOfSourceImageBySourceImageSequence(
  *
  * @return {String}                                   The corresponding imageId.
  */
-function getImageIdOfSourceImagebyGeometry(
+export function getImageIdOfSourceImagebyGeometry(
     ReferencedSeriesInstanceUID,
     FrameOfReferenceUID,
     PerFrameFunctionalGroup,
@@ -1528,7 +1445,7 @@ function getImageIdOfSourceImagebyGeometry(
  * @param  {Object} sopUIDImageIdIndexMap A map of SOPInstanceUIDs to imageIds.
  * @return {String}                  The imageId that corresponds to the sopInstanceUid.
  */
-function getImageIdOfReferencedFrame(
+export function getImageIdOfReferencedFrame(
     sopInstanceUid,
     frameNumber,
     sopUIDImageIdIndexMap
@@ -1550,7 +1467,7 @@ function getImageIdOfReferencedFrame(
  * @param  {Number[6]} iop The row (0..2) an column (3..5) direction cosines.
  * @return {Number[8][6]} An array of valid orientations.
  */
-function getValidOrientations(iop) {
+export function getValidOrientations(iop) {
     const orientations = [];
 
     // [0,  1,  2]: 0,   0hf,   0vf
@@ -1582,7 +1499,7 @@ function getValidOrientations(iop) {
  * @param {Number} tolerance.
  * @return {Ndarray} The aligned pixelData.
  */
-function alignPixelDataWithSourceData(
+export function alignPixelDataWithSourceData(
     pixelData2D,
     iop,
     orientations,
@@ -1629,30 +1546,7 @@ function alignPixelDataWithSourceData(
     }
 }
 
-/**
- * compareArrays - Returns true if array1 and array2 are equal
- * within a tolerance.
- *
- * @param  {Number[]} array1 - An array.
- * @param  {Number[]} array2 - An array.
- * @param {Number} tolerance.
- * @return {Boolean} True if array1 and array2 are equal.
- */
-function compareArrays(array1, array2, tolerance) {
-    if (array1.length != array2.length) {
-        return false;
-    }
-
-    for (let i = 0; i < array1.length; ++i) {
-        if (!nearlyEqual(array1[i], array2[i], tolerance)) {
-            return false;
-        }
-    }
-
-    return true;
-}
-
-function getSegmentMetadata(multiframe, seriesInstanceUid) {
+export function getSegmentMetadata(multiframe, seriesInstanceUid) {
     const segmentSequence = multiframe.SegmentSequence;
     let data = [];
 
@@ -1678,7 +1572,7 @@ function getSegmentMetadata(multiframe, seriesInstanceUid) {
  * @param {number} length - The number of bytes to read.
  * @returns {Uint8Array} A new Uint8Array containing the requested bytes.
  */
-function readFromUnpackedChunks(chunks, offset, length) {
+export function readFromUnpackedChunks(chunks, offset, length) {
     const mapping = getUnpackedOffsetAndLength(chunks, offset, length);
 
     // If all the data is in one chunk, we can just slice that chunk
@@ -1716,7 +1610,7 @@ function readFromUnpackedChunks(chunks, offset, length) {
     }
 }
 
-function getUnpackedOffsetAndLength(chunks, offset, length) {
+export function getUnpackedOffsetAndLength(chunks, offset, length) {
     var totalBytes = chunks.reduce((total, chunk) => total + chunk.length, 0);
 
     if (offset < 0 || offset + length > totalBytes) {
@@ -1745,10 +1639,18 @@ function getUnpackedOffsetAndLength(chunks, offset, length) {
     };
 }
 
-function calculateCentroid(imageIdIndexBufferIndex, multiframe) {
+export function calculateCentroid(
+    imageIdIndexBufferIndex,
+    multiframe,
+    metadataProvider,
+    imageIds
+) {
     let xAcc = 0;
     let yAcc = 0;
     let zAcc = 0;
+    let worldXAcc = 0;
+    let worldYAcc = 0;
+    let worldZAcc = 0;
     let count = 0;
 
     for (const [imageIdIndex, bufferIndices] of Object.entries(
@@ -1760,19 +1662,75 @@ function calculateCentroid(imageIdIndexBufferIndex, multiframe) {
             continue;
         }
 
+        // Get metadata for this slice
+        const imageId = imageIds[z];
+        const imagePlaneModule = metadataProvider.get(
+            "imagePlaneModule",
+            imageId
+        );
+
+        if (!imagePlaneModule) {
+            console.debug(
+                "Missing imagePlaneModule metadata for centroid calculation"
+            );
+            continue;
+        }
+
+        const {
+            imagePositionPatient,
+            rowCosines,
+            columnCosines,
+            rowPixelSpacing,
+            columnPixelSpacing
+        } = imagePlaneModule;
+
         for (const bufferIndex of bufferIndices) {
             const y = Math.floor(bufferIndex / multiframe.Rows);
             const x = bufferIndex % multiframe.Rows;
 
+            // Image coordinates
             xAcc += x;
             yAcc += y;
             zAcc += z;
+
+            // Calculate world coordinates
+            // P(world) = P(image) * IOP * spacing + IPP
+            const worldX =
+                imagePositionPatient[0] +
+                x * rowCosines[0] * columnPixelSpacing +
+                y * columnCosines[0] * rowPixelSpacing;
+
+            const worldY =
+                imagePositionPatient[1] +
+                x * rowCosines[1] * columnPixelSpacing +
+                y * columnCosines[1] * rowPixelSpacing;
+
+            const worldZ =
+                imagePositionPatient[2] +
+                x * rowCosines[2] * columnPixelSpacing +
+                y * columnCosines[2] * rowPixelSpacing;
+
+            worldXAcc += worldX;
+            worldYAcc += worldY;
+            worldZAcc += worldZ;
 
             count++;
         }
     }
 
-    return { xAcc, yAcc, zAcc, count };
+    return {
+        image: {
+            x: Math.floor(xAcc / count),
+            y: Math.floor(yAcc / count),
+            z: Math.floor(zAcc / count)
+        },
+        world: {
+            x: worldXAcc / count,
+            y: worldYAcc / count,
+            z: worldZAcc / count
+        },
+        count
+    };
 }
 
 const Segmentation = {
@@ -1782,4 +1740,3 @@ const Segmentation = {
 };
 
 export default Segmentation;
-export { fillSegmentation, generateSegmentation, generateToolState };

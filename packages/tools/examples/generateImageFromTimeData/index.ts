@@ -1,6 +1,6 @@
+import type { Types } from '@cornerstonejs/core';
 import {
   RenderingEngine,
-  Types,
   Enums,
   volumeLoader,
   getRenderingEngine,
@@ -18,11 +18,10 @@ import * as cornerstoneTools from '@cornerstonejs/tools';
 import cornerstoneDICOMImageLoader from '@cornerstonejs/dicom-image-loader';
 
 const {
-  SegmentationDisplayTool,
   utilities: csToolsUtilities,
   Enums: csToolsEnums,
   PanTool,
-  StackScrollMouseWheelTool,
+  StackScrollTool,
   ZoomTool,
 } = cornerstoneTools;
 
@@ -35,7 +34,7 @@ const { ViewportType } = Enums;
 const renderingEngineId = 'myRenderingEngine';
 const viewportId1 = 'CT_SAGITTAL_STACK';
 const viewportId2 = 'COMPUTED_STACK';
-let timeFrames;
+let dimensionGroups;
 
 const orientations = [
   Enums.OrientationAxis.AXIAL,
@@ -47,7 +46,7 @@ let dataOperation = operations[0];
 // ======== Set up page ======== //
 setTitleAndDescription(
   '3D Volume Generation From 4D Data',
-  'Generates a 3D volume using the SUM, AVERAGE, or SUBTRACT operators for a 4D time series.\nEnter the time frames to use separated by commas (ex: 0,1,3,4) then press "Set Time Frames". \nNote: the index for the time frames starts at 0'
+  'Generates a 3D volume using the SUM, AVERAGE, or SUBTRACT operators for a 4D time series.\nEnter the dimension group numbers to use separated by commas (ex: 0,1,3,4) then press "Set Dimension Groups". \nNote: the index for the dimension groups starts at 0'
 );
 
 const size = '500px';
@@ -79,8 +78,10 @@ addButtonToToolbar({
   onClick: () => {
     const dataInTime = csToolsUtilities.dynamicVolume.generateImageFromTimeData(
       volumeForButton,
-      <Enums.DynamicOperatorType>dataOperation,
-      timeFrames
+      <Enums.GenerateImageType>dataOperation,
+      {
+        dimensionGroupNumbers: dimensionGroups,
+      }
     );
     createVolumeFromTimeData(dataInTime);
   },
@@ -104,6 +105,9 @@ addDropdownToToolbar({
   onSelectedValueChange: (selectedValue) => {
     // Get the rendering engine
     const renderingEngine = getRenderingEngine(renderingEngineId);
+    if (!renderingEngine) {
+      return;
+    }
     // Get the volume viewport
     const viewport = <Types.IVolumeViewport>(
       renderingEngine.getViewport(viewportId1)
@@ -114,19 +118,18 @@ addDropdownToToolbar({
 });
 
 addButtonToToolbar({
-  title: 'Set Time Frames',
+  title: 'Set Dimension Groups',
   onClick: () => {
-    const x = document.getElementById('myText').value.split(',');
-    for (let i = 0; i < x.length; i++) {
-      x[i] = ~~x[i];
-    }
-    timeFrames = x;
+    const input = document.getElementById('myText') as HTMLInputElement;
+    const x = input?.value.split(',') || [];
+    const dimensionGroupNumbers = x.map((val) => Number(val));
+    dimensionGroups = dimensionGroupNumbers;
   },
 });
 
 function addTextInputBox() {
   const id = 'myText';
-  const title = 'Enter time frames';
+  const title = 'Enter dimension group numbers';
   const textbox = document.createElement('input');
   const value = '';
   textbox.id = id;
@@ -134,17 +137,19 @@ function addTextInputBox() {
   textbox.value = value;
 
   const container = document.getElementById('demo-toolbar');
-  container.append(textbox);
+  if (container) {
+    container.append(textbox);
+  }
 }
 
-function addTimePointSlider(volume) {
+function addDimensionGroupSlider(volume) {
   addSliderToToolbar({
-    title: 'Time Point',
-    range: [0, volume.numTimePoints - 1],
-    defaultValue: 0,
+    title: 'Dimension Group Number',
+    range: [1, volume.numDimensionGroups],
+    defaultValue: 1,
     onSelectedValueChange: (value) => {
-      const timePointIndex = Number(value);
-      volume.timePointIndex = timePointIndex;
+      const dimensionGroupNumber = Number(value);
+      volume.dimensionGroupNumber = dimensionGroupNumber;
     },
   });
 }
@@ -164,9 +169,9 @@ let computedVolume;
 
 async function createVolumeFromTimeData(dataInTime) {
   // Fill the scalar data of the computed volume with the operation data
-  const scalarData = computedVolume.getScalarData();
+  const computedVoxelManager = computedVolume.voxelManager;
   for (let i = 0; i < dataInTime.length; i++) {
-    scalarData[i] = dataInTime[i];
+    computedVoxelManager.setAtIndex(i, dataInTime[i]);
   }
 
   const { imageData, vtkOpenGLTexture } = computedVolume;
@@ -181,7 +186,6 @@ async function createVolumeFromTimeData(dataInTime) {
   viewport2.setVolumes([
     {
       volumeId: computedVolumeId,
-      callback: setPetTransferFunctionForVolumeActor,
     },
   ]);
 
@@ -195,19 +199,18 @@ async function run() {
   // Init Cornerstone and related libraries
   await initDemo();
   // Add tools to Cornerstone3D
-  cornerstoneTools.addTool(SegmentationDisplayTool);
   cornerstoneTools.addTool(PanTool);
-  cornerstoneTools.addTool(StackScrollMouseWheelTool);
+  cornerstoneTools.addTool(StackScrollTool);
   cornerstoneTools.addTool(ZoomTool);
   // Define tool groups to add the segmentation display tool to
   const toolGroup =
     cornerstoneTools.ToolGroupManager.createToolGroup(toolGroupId);
-  toolGroup.addTool(SegmentationDisplayTool.toolName);
   toolGroup.addTool(PanTool.toolName);
-  toolGroup.addTool(StackScrollMouseWheelTool.toolName);
+  toolGroup.addTool(StackScrollTool.toolName);
   toolGroup.addTool(ZoomTool.toolName);
-  toolGroup.setToolEnabled(SegmentationDisplayTool.toolName);
-  toolGroup.setToolActive(StackScrollMouseWheelTool.toolName);
+  toolGroup.setToolActive(StackScrollTool.toolName, {
+    bindings: [{ mouseButton: MouseBindings.Wheel }],
+  });
   toolGroup.setToolActive(PanTool.toolName, {
     bindings: [
       {
@@ -227,21 +230,18 @@ async function run() {
 
   // Get Cornerstone imageIds and fetch metadata into RAM
   let imageIds = await createImageIdsAndCacheMetaData({
-    StudyInstanceUID:
-      '1.3.6.1.4.1.12842.1.1.14.3.20220915.105557.468.2963630849',
-    SeriesInstanceUID:
-      '1.3.6.1.4.1.12842.1.1.22.4.20220915.124758.560.4125514885',
-    wadoRsRoot: 'https://d33do7qe4w26qo.cloudfront.net/dicomweb',
+    StudyInstanceUID: '2.25.79767489559005369769092179787138169587',
+    SeriesInstanceUID: '2.25.87977716979310885152986847054790859463',
+    wadoRsRoot: 'https://d14fa38qiwhyfd.cloudfront.net/dicomweb',
   });
 
-  const MAX_NUM_TIMEPOINTS = 40;
-  const firstTimePoint = 10;
-  const lastTimePoint = 14;
-  const NUM_IMAGES_PER_TIME_POINT = 235;
-  const TOTAL_NUM_IMAGES = MAX_NUM_TIMEPOINTS * NUM_IMAGES_PER_TIME_POINT;
+  const firstDimensionGroup = 10;
+  const lastDimensionGroup = 14;
+  const NUM_IMAGES_PER_DIMENSION_GROUP = 235;
   const firstInstanceNumber =
-    (firstTimePoint - 1) * NUM_IMAGES_PER_TIME_POINT + 1;
-  const lastInstanceNumber = lastTimePoint * NUM_IMAGES_PER_TIME_POINT;
+    (firstDimensionGroup - 1) * NUM_IMAGES_PER_DIMENSION_GROUP + 1;
+  const lastInstanceNumber =
+    lastDimensionGroup * NUM_IMAGES_PER_DIMENSION_GROUP;
 
   imageIds = imageIds.filter((imageId) => {
     const instanceMetaData = metaDataManager.get(imageId);
@@ -273,7 +273,6 @@ async function run() {
     element: element2,
     defaultOptions: {
       orientation: Enums.OrientationAxis.ACQUISITION,
-      background: <Types.Point3>[0.2, 0, 0.2],
     },
   };
 
@@ -292,7 +291,7 @@ async function run() {
     imageIds,
   });
 
-  computedVolume = await volumeLoader.createAndCacheDerivedVolume(volumeId, {
+  computedVolume = volumeLoader.createAndCacheDerivedLabelmapVolume(volumeId, {
     volumeId: computedVolumeId,
   });
 
@@ -301,12 +300,10 @@ async function run() {
 
   volumeForButton = volume;
   addTextInputBox();
-  addTimePointSlider(volume);
+  addDimensionGroupSlider(volume);
 
   // Set the volume on the viewport
-  viewport.setVolumes([
-    { volumeId, callback: setPetTransferFunctionForVolumeActor },
-  ]);
+  viewport.setVolumes([{ volumeId }]);
 
   // Render the image
   viewport.render();

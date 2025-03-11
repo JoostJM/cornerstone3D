@@ -1,4 +1,4 @@
-import { utilities } from '@cornerstonejs/core';
+import { getEnabledElement, utilities } from '@cornerstonejs/core';
 import type {
   Annotation,
   EventTypes,
@@ -6,32 +6,38 @@ import type {
   ToolProps,
   AnnotationRenderContext,
 } from '../../types';
-import {
-  config as segmentationConfig,
-  state as segmentationState,
-  segmentLocking,
-  segmentIndex as segmentIndexController,
-  activeSegmentation,
-} from '../../stateManagement/segmentation';
+
 import type { ContourSegmentationAnnotation } from '../../types/ContourSegmentationAnnotation';
-import type { SplineContourSegmentationAnnotation } from '../../types/ToolSpecificAnnotationTypes';
+import type {
+  SplineContourSegmentationAnnotation,
+  ContourAnnotation,
+} from '../../types/ToolSpecificAnnotationTypes';
 import type { StyleSpecifier } from '../../types/AnnotationStyle';
 import { SegmentationRepresentations } from '../../enums';
 import ContourBaseTool from './ContourBaseTool';
 import { triggerSegmentationDataModified } from '../../stateManagement/segmentation/triggerSegmentationEvents';
-import { InterpolationManager } from '../../utilities/contours/interpolation';
+import InterpolationManager from '../../utilities/segmentation/InterpolationManager/InterpolationManager';
+
 import {
   addContourSegmentationAnnotation,
   removeContourSegmentationAnnotation,
 } from '../../utilities/contourSegmentation';
-import { getToolGroupIdsWithSegmentation } from '../../stateManagement/segmentation/segmentationState';
-import { triggerAnnotationRenderForToolGroupIds } from '../../utilities';
+import { triggerAnnotationRenderForToolGroupIds } from '../../utilities/triggerAnnotationRenderForToolGroupIds';
+import { getToolGroupForViewport } from '../../store/ToolGroupManager';
+import { getSegmentationRepresentations } from '../../stateManagement/segmentation/getSegmentationRepresentation';
+import { getActiveSegmentation } from '../../stateManagement/segmentation/getActiveSegmentation';
+import { getViewportIdsWithSegmentation } from '../../stateManagement/segmentation/getViewportIdsWithSegmentation';
+import { getActiveSegmentIndex } from '../../stateManagement/segmentation/getActiveSegmentIndex';
+import { getLockedSegmentIndices } from '../../stateManagement/segmentation/segmentLocking';
+import { getSVGStyleForSegment } from '../../utilities/segmentation/getSVGStyleForSegment';
 
 /**
  * A base contour segmentation class responsible for rendering, registering
  * and unregister contour segmentation annotations.
  */
 abstract class ContourSegmentationBaseTool extends ContourBaseTool {
+  static PreviewSegmentIndex = 255;
+
   constructor(toolProps: PublicToolProps, defaultToolProps: ToolProps) {
     super(toolProps, defaultToolProps);
     if (this.configuration.interpolation?.enabled) {
@@ -53,32 +59,42 @@ abstract class ContourSegmentationBaseTool extends ContourBaseTool {
     return true;
   }
 
-  protected createAnnotation(evt: EventTypes.InteractionEventType): Annotation {
-    const { toolGroupId } = this;
+  /**
+   * Creates a contour segmentation annotation
+   */
+  protected createAnnotation(
+    evt: EventTypes.InteractionEventType
+  ): ContourAnnotation {
+    const eventDetail = evt.detail;
+    const { element } = eventDetail;
+
+    const enabledElement = getEnabledElement(element);
+
+    if (!enabledElement) {
+      return;
+    }
+    const { viewport } = enabledElement;
+
     const contourAnnotation = super.createAnnotation(evt);
 
     if (!this.isContourSegmentationTool()) {
       return contourAnnotation;
     }
 
-    const activeSegmentationRepresentation =
-      activeSegmentation.getActiveSegmentationRepresentation(toolGroupId);
+    const activeSeg = getActiveSegmentation(viewport.id);
 
-    if (!activeSegmentationRepresentation) {
+    if (!activeSeg) {
       throw new Error(
         'No active segmentation detected, create one before using scissors tool'
       );
     }
 
-    const { type: segmentationType } = activeSegmentationRepresentation;
-
-    if (segmentationType !== SegmentationRepresentations.Contour) {
+    if (!activeSeg.representationData.Contour) {
       throw new Error(`A contour segmentation must be active`);
     }
 
-    const { segmentationId } = activeSegmentationRepresentation;
-    const segmentIndex =
-      segmentIndexController.getActiveSegmentIndex(segmentationId);
+    const { segmentationId } = activeSeg;
+    const segmentIndex = getActiveSegmentIndex(segmentationId);
 
     return <ContourSegmentationAnnotation>utilities.deepMerge(
       contourAnnotation,
@@ -163,7 +179,12 @@ abstract class ContourSegmentationBaseTool extends ContourBaseTool {
       // and trigger the event for them to be able to render the segmentation
       // annotation as well
 
-      const toolGroupIds = getToolGroupIdsWithSegmentation(segmentationId);
+      const viewportIds = getViewportIdsWithSegmentation(segmentationId);
+
+      const toolGroupIds = viewportIds.map((viewportId) => {
+        const toolGroup = getToolGroupForViewport(viewportId);
+        return toolGroup.id;
+      });
 
       triggerAnnotationRenderForToolGroupIds(toolGroupIds);
     }
@@ -172,111 +193,54 @@ abstract class ContourSegmentationBaseTool extends ContourBaseTool {
   }
 
   /**
-   * Return the annotation style based on global, toolGroup, segmentation
-   * and segment segmentation configurations.
+   * Return the annotation style based on global, AllSegments and perSegment
+   * configurations. The style is used to render the contour segmentation
    */
   private _getContourSegmentationStyle(context: {
     annotation: Annotation;
     styleSpecifier: StyleSpecifier;
-  }): Record<string, any> {
-    const { toolGroupId } = this;
+  }): Record<string, unknown> {
     const annotation = context.annotation as ContourSegmentationAnnotation;
     const { segmentationId, segmentIndex } = annotation.data.segmentation;
-    const segmentation = segmentationState.getSegmentation(segmentationId);
-    const segmentationRepresentation =
-      this._getSegmentationRepresentation(segmentationId);
+    const { viewportId } = context.styleSpecifier;
+    const segmentationRepresentations = getSegmentationRepresentations(
+      viewportId,
+      { segmentationId }
+    );
 
-    if (!segmentationRepresentation) {
+    if (!segmentationRepresentations?.length) {
       // return defaults if no segmentation representation is found
       return {};
     }
-    const { segmentationRepresentationUID } = segmentationRepresentation;
-    const { active } = segmentationRepresentation;
+
+    let segmentationRepresentation;
+    if (segmentationRepresentations.length > 1) {
+      // set the segmentation representation based on the viewport
+      // representations if available
+      segmentationRepresentation = segmentationRepresentations.find(
+        (rep) =>
+          rep.segmentationId === segmentationId &&
+          rep.type === SegmentationRepresentations.Contour
+      );
+    } else {
+      segmentationRepresentation = segmentationRepresentations[0];
+    }
+
     const { autoGenerated } = annotation;
-    const segmentsLocked = segmentLocking.getLockedSegments(segmentationId);
+    const segmentsLocked = getLockedSegmentIndices(segmentationId);
     const annotationLocked = segmentsLocked.includes(segmentIndex as never);
 
     // Todo: we should really get styles every time we render, since it is getting
     // the style for the visibility and that goes through the segment indices
     // calculation which is expensive. We should cache the styles and only update
     // them if the segmentation representation modified event is triggered.
-
-    const segmentColor = segmentationConfig.color.getColorForSegmentIndex(
-      toolGroupId,
-      segmentationRepresentationUID,
-      segmentIndex
-    );
-
-    const segmentationVisible =
-      segmentationConfig.visibility.getSegmentationVisibility(
-        toolGroupId,
-        segmentationRepresentationUID
-      );
-
-    const globalConfig = segmentationConfig.getGlobalConfig();
-
-    const toolGroupConfig =
-      segmentationConfig.getToolGroupSpecificConfig(toolGroupId);
-
-    const segmentationRepresentationConfig =
-      segmentationConfig.getSegmentationRepresentationSpecificConfig(
-        toolGroupId,
-        segmentationRepresentationUID
-      );
-
-    const segmentConfig = segmentationConfig.getSegmentSpecificConfig(
-      toolGroupId,
-      segmentationRepresentationUID,
-      segmentIndex
-    );
-
-    const segmentVisible = segmentationConfig.visibility.getSegmentVisibility(
-      toolGroupId,
-      segmentationRepresentationUID,
-      segmentIndex
-    );
-
-    // Merge the configurations from different levels based on its precedence
-    const mergedConfig = Object.assign(
-      {},
-      globalConfig?.representations?.CONTOUR ?? {},
-      toolGroupConfig?.representations?.CONTOUR ?? {},
-      segmentationRepresentationConfig?.CONTOUR ?? {},
-      segmentConfig?.CONTOUR ?? {}
-    );
-
-    let lineWidth = 1;
-    let lineDash = undefined;
-    let lineOpacity = 1;
-    let fillOpacity = 0;
-
-    if (autoGenerated) {
-      lineWidth = mergedConfig.outlineWidthAutoGenerated ?? lineWidth;
-      lineDash = mergedConfig.outlineDashAutoGenerated ?? lineDash;
-      lineOpacity = mergedConfig.outlineOpacity ?? lineOpacity;
-      fillOpacity = mergedConfig.fillAlphaAutoGenerated ?? fillOpacity;
-    } else if (active) {
-      lineWidth = mergedConfig.outlineWidthActive ?? lineWidth;
-      lineDash = mergedConfig.outlineDashActive ?? lineDash;
-      lineOpacity = mergedConfig.outlineOpacity ?? lineOpacity;
-      fillOpacity = mergedConfig.fillAlpha ?? fillOpacity;
-    } else {
-      lineWidth = mergedConfig.outlineWidthInactive ?? lineWidth;
-      lineDash = mergedConfig.outlineDashInactive ?? lineDash;
-      lineOpacity = mergedConfig.outlineOpacityInactive ?? lineOpacity;
-      fillOpacity = mergedConfig.fillAlphaInactive ?? fillOpacity;
-    }
-
-    // Change the line thickness when the mouse is over the contour segment
-    if (segmentation.activeSegmentIndex === segmentIndex) {
-      lineWidth += mergedConfig.activeSegmentOutlineWidthDelta;
-    }
-
-    lineWidth = mergedConfig.renderOutline ? lineWidth : 0;
-    fillOpacity = mergedConfig.renderFill ? fillOpacity : 0;
-
-    const color = `rgba(${segmentColor[0]}, ${segmentColor[1]}, ${segmentColor[2]}, ${lineOpacity})`;
-    const fillColor = `rgb(${segmentColor[0]}, ${segmentColor[1]}, ${segmentColor[2]})`;
+    const { color, fillColor, lineWidth, fillOpacity, lineDash, visibility } =
+      getSVGStyleForSegment({
+        segmentationId,
+        segmentIndex,
+        viewportId,
+        autoGenerated,
+      });
 
     return {
       color,
@@ -287,36 +251,9 @@ abstract class ContourSegmentationBaseTool extends ContourBaseTool {
       textbox: {
         color,
       },
-      visibility: segmentationVisible && segmentVisible,
+      visibility,
       locked: annotationLocked,
     };
-  }
-
-  private _getSegmentationRepresentation(segmentationId) {
-    const segmentationRepresentations =
-      segmentationState.getSegmentationRepresentations(this.toolGroupId);
-
-    const validSegmentationRepresentations = segmentationRepresentations.filter(
-      (representation) => representation.segmentationId === segmentationId
-    );
-
-    if (!validSegmentationRepresentations) {
-      console.warn(
-        `No segmentation representation found for toolGroupId: ${this.toolGroupId}`
-      );
-      return;
-    }
-
-    if (
-      segmentationState.getSegmentationRepresentations(this.toolGroupId)
-        .length > 1
-    ) {
-      console.warn(
-        'Multiple segmentation representations detected for this tool group. The first one will be used.'
-      );
-    }
-
-    return validSegmentationRepresentations[0];
   }
 }
 

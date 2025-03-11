@@ -4,11 +4,11 @@ import {
   getEnabledElement,
   VolumeViewport,
   utilities as csUtils,
+  getEnabledElementByViewportId,
 } from '@cornerstonejs/core';
 import type { Types } from '@cornerstonejs/core';
 
 import { getCalibratedLengthUnitsAndScale } from '../../utilities/getCalibratedUnits';
-import { roundNumber } from '../../utilities';
 import throttle from '../../utilities/throttle';
 import {
   addAnnotation,
@@ -26,7 +26,7 @@ import {
   drawLinkedTextBox as drawLinkedTextBoxSvg,
   drawRectByCoordinates as drawRectSvg,
 } from '../../drawingSvg';
-import { state } from '../../store';
+import { state } from '../../store/state';
 import { Events } from '../../enums';
 import { getViewportIdsWithToolToRender } from '../../utilities/viewportFilters';
 import * as rectangle from '../../utilities/math/rectangle';
@@ -38,19 +38,19 @@ import {
 } from '../../cursors/elementCursor';
 import triggerAnnotationRenderForViewportIds from '../../utilities/triggerAnnotationRenderForViewportIds';
 
-import {
+import type {
   EventTypes,
   ToolHandle,
   TextBoxHandle,
   ToolProps,
   PublicToolProps,
   SVGDrawingHelper,
+  Annotation,
 } from '../../types';
-import { RectangleROIAnnotation } from '../../types/ToolSpecificAnnotationTypes';
-import { StyleSpecifier } from '../../types/AnnotationStyle';
-import { getModalityUnit } from '../../utilities/getModalityUnit';
+import type { RectangleROIAnnotation } from '../../types/ToolSpecificAnnotationTypes';
+import type { StyleSpecifier } from '../../types/AnnotationStyle';
+import { getPixelValueUnits } from '../../utilities/getPixelValueUnits';
 import { isViewportPreScaled } from '../../utilities/viewport/isViewportPreScaled';
-import { pointInShapeCallback } from '../../utilities/';
 import { BasicStatsCalculator } from '../../utilities/math/basic';
 
 const { transformWorldToIndex } = csUtils;
@@ -97,9 +97,9 @@ const { transformWorldToIndex } = csUtils;
 class RectangleROITool extends AnnotationTool {
   static toolName;
 
-  _throttledCalculateCachedStats: any;
+  _throttledCalculateCachedStats: Function;
   editData: {
-    annotation: any;
+    annotation: Annotation;
     viewportIdsToRender: string[];
     handleIndex?: number;
     movingTextBox?: boolean;
@@ -114,6 +114,8 @@ class RectangleROITool extends AnnotationTool {
     defaultToolProps: ToolProps = {
       supportedInteractionTypes: ['Mouse', 'Touch'],
       configuration: {
+        // Whether to store point data in the annotation
+        storePointData: false,
         shadow: true,
         preventHandleOutsideImage: false,
         getTextLines: defaultGetTextLines,
@@ -146,57 +148,36 @@ class RectangleROITool extends AnnotationTool {
     const worldPos = currentPoints.world;
 
     const enabledElement = getEnabledElement(element);
-    const { viewport, renderingEngine } = enabledElement;
+    const { viewport } = enabledElement;
 
     this.isDrawing = true;
 
-    const camera = viewport.getCamera();
-    const { viewPlaneNormal, viewUp } = camera;
-
-    const referencedImageId = this.getReferencedImageId(
-      viewport,
-      worldPos,
-      viewPlaneNormal,
-      viewUp
-    );
-
-    const FrameOfReferenceUID = viewport.getFrameOfReferenceUID();
-
-    const annotation = {
-      invalidated: true,
-      highlighted: true,
-      metadata: {
-        toolName: this.getToolName(),
-        viewPlaneNormal: <Types.Point3>[...viewPlaneNormal],
-        viewUp: <Types.Point3>[...viewUp],
-        FrameOfReferenceUID,
-        referencedImageId,
-        ...viewport.getViewReference({ points: [worldPos] }),
-      },
-      data: {
-        label: '',
-        handles: {
-          points: [
-            <Types.Point3>[...worldPos],
-            <Types.Point3>[...worldPos],
-            <Types.Point3>[...worldPos],
-            <Types.Point3>[...worldPos],
-          ],
-          textBox: {
-            hasMoved: false,
-            worldPosition: <Types.Point3>[0, 0, 0],
-            worldBoundingBox: {
-              topLeft: <Types.Point3>[0, 0, 0],
-              topRight: <Types.Point3>[0, 0, 0],
-              bottomLeft: <Types.Point3>[0, 0, 0],
-              bottomRight: <Types.Point3>[0, 0, 0],
+    const annotation =
+      RectangleROITool.createAnnotationForViewport<RectangleROIAnnotation>(
+        viewport,
+        {
+          data: {
+            handles: {
+              points: [
+                <Types.Point3>[...worldPos],
+                <Types.Point3>[...worldPos],
+                <Types.Point3>[...worldPos],
+                <Types.Point3>[...worldPos],
+              ],
+              textBox: {
+                hasMoved: false,
+                worldPosition: <Types.Point3>[0, 0, 0],
+                worldBoundingBox: {
+                  topLeft: <Types.Point3>[0, 0, 0],
+                  topRight: <Types.Point3>[0, 0, 0],
+                  bottomLeft: <Types.Point3>[0, 0, 0],
+                  bottomRight: <Types.Point3>[0, 0, 0],
+                },
+              },
             },
           },
-          activeHandleIndex: null,
-        },
-        cachedStats: {},
-      },
-    };
+        }
+      );
 
     addAnnotation(annotation, element);
 
@@ -219,7 +200,7 @@ class RectangleROITool extends AnnotationTool {
 
     evt.preventDefault();
 
-    triggerAnnotationRenderForViewportIds(renderingEngine, viewportIdsToRender);
+    triggerAnnotationRenderForViewportIds(viewportIdsToRender);
 
     return annotation;
   };
@@ -297,7 +278,7 @@ class RectangleROITool extends AnnotationTool {
     const enabledElement = getEnabledElement(element);
     const { renderingEngine } = enabledElement;
 
-    triggerAnnotationRenderForViewportIds(renderingEngine, viewportIdsToRender);
+    triggerAnnotationRenderForViewportIds(viewportIdsToRender);
 
     evt.preventDefault();
   };
@@ -341,7 +322,7 @@ class RectangleROITool extends AnnotationTool {
     const enabledElement = getEnabledElement(element);
     const { renderingEngine } = enabledElement;
 
-    triggerAnnotationRenderForViewportIds(renderingEngine, viewportIdsToRender);
+    triggerAnnotationRenderForViewportIds(viewportIdsToRender);
 
     evt.preventDefault();
   };
@@ -365,7 +346,7 @@ class RectangleROITool extends AnnotationTool {
 
     resetElementCursor(element);
 
-    const { renderingEngine } = getEnabledElement(element);
+    this.doneEditMemo();
 
     this.editData = null;
     this.isDrawing = false;
@@ -377,7 +358,7 @@ class RectangleROITool extends AnnotationTool {
       removeAnnotation(annotation.annotationUID);
     }
 
-    triggerAnnotationRenderForViewportIds(renderingEngine, viewportIdsToRender);
+    triggerAnnotationRenderForViewportIds(viewportIdsToRender);
 
     if (newAnnotation) {
       triggerAnnotationCompleted(annotation);
@@ -390,8 +371,15 @@ class RectangleROITool extends AnnotationTool {
     const eventDetail = evt.detail;
     const { element } = eventDetail;
 
-    const { annotation, viewportIdsToRender, handleIndex, movingTextBox } =
-      this.editData;
+    const {
+      annotation,
+      viewportIdsToRender,
+      handleIndex,
+      movingTextBox,
+      newAnnotation,
+    } = this.editData;
+
+    this.createMemo(element, annotation, { newAnnotation });
     const { data } = annotation;
 
     if (movingTextBox) {
@@ -489,9 +477,8 @@ class RectangleROITool extends AnnotationTool {
     this.editData.hasMoved = true;
 
     const enabledElement = getEnabledElement(element);
-    const { renderingEngine } = enabledElement;
 
-    triggerAnnotationRenderForViewportIds(renderingEngine, viewportIdsToRender);
+    triggerAnnotationRenderForViewportIds(viewportIdsToRender);
   };
 
   cancel = (element: HTMLDivElement) => {
@@ -509,12 +496,7 @@ class RectangleROITool extends AnnotationTool {
       annotation.highlighted = false;
       data.handles.activeHandleIndex = null;
 
-      const { renderingEngine } = getEnabledElement(element);
-
-      triggerAnnotationRenderForViewportIds(
-        renderingEngine,
-        viewportIdsToRender
-      );
+      triggerAnnotationRenderForViewportIds(viewportIdsToRender);
 
       if (newAnnotation) {
         triggerAnnotationCompleted(annotation);
@@ -721,7 +703,7 @@ class RectangleROITool extends AnnotationTool {
       }
 
       if (
-        !isAnnotationLocked(annotation) &&
+        !isAnnotationLocked(annotationUID) &&
         !this.editData &&
         activeHandleIndex !== null
       ) {
@@ -865,7 +847,7 @@ class RectangleROITool extends AnnotationTool {
     for (let i = 0; i < targetIds.length; i++) {
       const targetId = targetIds[i];
 
-      const image = this.getTargetIdImage(targetId, renderingEngine);
+      const image = this.getTargetImageData(targetId);
 
       // If image does not exists for the targetId, skip. This can be due
       // to various reasons such as if the target was a volumeViewport, and
@@ -874,7 +856,7 @@ class RectangleROITool extends AnnotationTool {
         continue;
       }
 
-      const { dimensions, imageData, metadata } = image;
+      const { dimensions, imageData, metadata, voxelManager } = image;
 
       const pos1Index = transformWorldToIndex(imageData, worldPos1);
 
@@ -919,14 +901,14 @@ class RectangleROITool extends AnnotationTool {
         );
 
         const handles = [pos1Index, pos2Index];
-        const { scale, areaUnits } = getCalibratedLengthUnitsAndScale(
+        const { scale, areaUnit } = getCalibratedLengthUnitsAndScale(
           image,
           handles
         );
 
         const area = Math.abs(worldWidth * worldHeight) / (scale * scale);
 
-        const modalityUnitOptions = {
+        const pixelUnitsOptions = {
           isPreScaled: isViewportPreScaled(viewport, targetId),
 
           isSuvScaled: this.isSuvScaled(
@@ -936,19 +918,20 @@ class RectangleROITool extends AnnotationTool {
           ),
         };
 
-        const modalityUnit = getModalityUnit(
+        const modalityUnit = getPixelValueUnits(
           metadata.Modality,
           annotation.metadata.referencedImageId,
-          modalityUnitOptions
+          pixelUnitsOptions
         );
 
-        const pointsInShape = pointInShapeCallback(
-          imageData,
-          () => true,
+        const pointsInShape = voxelManager.forEach(
           this.configuration.statsCalculator.statsCallback,
-          boundsIJK
+          {
+            boundsIJK,
+            imageData,
+            returnPoints: this.configuration.storePointData,
+          }
         );
-
         const stats = this.configuration.statsCalculator.getStatistics();
 
         cachedStats[targetId] = {
@@ -959,7 +942,7 @@ class RectangleROITool extends AnnotationTool {
           max: stats.max?.value,
           statsArray: stats.array,
           pointsInShape: pointsInShape,
-          areaUnit: areaUnits,
+          areaUnit,
           modalityUnit,
         };
       } else {
@@ -984,6 +967,62 @@ class RectangleROITool extends AnnotationTool {
       csUtils.indexWithinDimensions(index2, dimensions)
     );
   };
+
+  static hydrate = (
+    viewportId: string,
+    points: Types.Point3[],
+    options?: {
+      annotationUID?: string;
+    }
+  ): RectangleROIAnnotation => {
+    const enabledElement = getEnabledElementByViewportId(viewportId);
+    if (!enabledElement) {
+      return;
+    }
+    const { viewport } = enabledElement;
+    const FrameOfReferenceUID = viewport.getFrameOfReferenceUID();
+
+    const { viewPlaneNormal, viewUp } = viewport.getCamera();
+
+    // This is a workaround to access the protected method getReferencedImageId
+    // we should make those static too
+    const instance = new this();
+
+    const referencedImageId = instance.getReferencedImageId(
+      viewport,
+      points[0],
+      viewPlaneNormal,
+      viewUp
+    );
+
+    const annotation = {
+      annotationUID: options?.annotationUID || csUtils.uuidv4(),
+      data: {
+        handles: {
+          points,
+          activeHandleIndex: null,
+        },
+        label: '',
+        cachedStats: {},
+      },
+      highlighted: false,
+      autoGenerated: false,
+      invalidated: false,
+      isLocked: false,
+      isVisible: true,
+      metadata: {
+        toolName: instance.getToolName(),
+        viewPlaneNormal,
+        FrameOfReferenceUID,
+        referencedImageId,
+        ...options,
+      },
+    };
+
+    addAnnotation(annotation, viewport.element);
+
+    triggerAnnotationRenderForViewportIds([viewport.id]);
+  };
 }
 
 /**
@@ -1003,10 +1042,10 @@ function defaultGetTextLines(data, targetId: string): string[] {
 
   const textLines: string[] = [];
 
-  textLines.push(`Area: ${roundNumber(area)} ${areaUnit}`);
-  textLines.push(`Mean: ${roundNumber(mean)} ${modalityUnit}`);
-  textLines.push(`Max: ${roundNumber(max)} ${modalityUnit}`);
-  textLines.push(`Std Dev: ${roundNumber(stdDev)} ${modalityUnit}`);
+  textLines.push(`Area: ${csUtils.roundNumber(area)} ${areaUnit}`);
+  textLines.push(`Mean: ${csUtils.roundNumber(mean)} ${modalityUnit}`);
+  textLines.push(`Max: ${csUtils.roundNumber(max)} ${modalityUnit}`);
+  textLines.push(`Std Dev: ${csUtils.roundNumber(stdDev)} ${modalityUnit}`);
 
   return textLines;
 }

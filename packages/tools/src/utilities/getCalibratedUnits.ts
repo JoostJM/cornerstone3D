@@ -3,18 +3,31 @@ import { Enums, utilities } from '@cornerstonejs/core';
 const { CalibrationTypes } = Enums;
 const PIXEL_UNITS = 'px';
 
+/**
+ * DICOM Region Data Types as defined in the DICOM standard
+ * https://dicom.nema.org/medical/dicom/current/output/chtml/part03/sect_C.8.5.5.html#sect_C.8.5.5.1.2
+ */
 const SUPPORTED_REGION_DATA_TYPES = [
   1, // Tissue
+  2, // Color Flow
+  3, // PW Spectral Doppler
+  4, // CW Spectral Doppler
 ];
 
 const SUPPORTED_LENGTH_VARIANT = [
-  '3,3', // x: cm  &  y:cm
+  '3,3', // x: cm & y:cm
+  '4,7', // x: seconds & y : cm/sec
 ];
 
 const SUPPORTED_PROBE_VARIANT = [
-  '4,3', // x: seconds  &  y : cm
+  '4,3', // x: seconds & y : cm
+  '4,7', // x: seconds & y : cm/sec
 ];
 
+/**
+ * DICOM Pixel Physical Units as defined in the DICOM standard
+ * https://dicom.nema.org/medical/dicom/current/output/chtml/part03/sect_C.8.5.5.html#sect_C.8.5.5.1.6
+ */
 const UNIT_MAPPING = {
   0: 'px',
   1: 'percent',
@@ -41,8 +54,8 @@ const SQUARE = '\xb2';
  */
 const getCalibratedLengthUnitsAndScale = (image, handles) => {
   const { calibration, hasPixelSpacing } = image;
-  let units = hasPixelSpacing ? 'mm' : PIXEL_UNITS;
-  let areaUnits = units + SQUARE;
+  let unit = hasPixelSpacing ? 'mm' : PIXEL_UNITS;
+  let areaUnit = unit + SQUARE;
   let scale = 1;
   let calibrationType = '';
 
@@ -50,11 +63,11 @@ const getCalibratedLengthUnitsAndScale = (image, handles) => {
     !calibration ||
     (!calibration.type && !calibration.sequenceOfUltrasoundRegions)
   ) {
-    return { units, areaUnits, scale };
+    return { unit, areaUnit, scale };
   }
 
   if (calibration.type === CalibrationTypes.UNCALIBRATED) {
-    return { units: PIXEL_UNITS, areaUnits: PIXEL_UNITS + SQUARE, scale };
+    return { unit: PIXEL_UNITS, areaUnit: PIXEL_UNITS + SQUARE, scale };
   }
 
   if (calibration.sequenceOfUltrasoundRegions) {
@@ -82,7 +95,7 @@ const getCalibratedLengthUnitsAndScale = (image, handles) => {
     // If we are not in a region at all we should show the underlying calibration
     // which might be the mm spacing for the image
     if (!regions?.length) {
-      return { units, areaUnits, scale };
+      return { unit, areaUnit, scale };
     }
 
     // if we are in a region then it is the question of whether we support it
@@ -97,7 +110,11 @@ const getCalibratedLengthUnitsAndScale = (image, handles) => {
     );
 
     if (!regions.length) {
-      return { units: PIXEL_UNITS, areaUnits: PIXEL_UNITS + SQUARE, scale };
+      return {
+        unit: PIXEL_UNITS,
+        areaUnit: PIXEL_UNITS + SQUARE,
+        scale,
+      };
     }
 
     // Todo: expand on this logic
@@ -120,14 +137,18 @@ const getCalibratedLengthUnitsAndScale = (image, handles) => {
       // 1 to 1 aspect ratio, we use just one of them
       scale = 1 / physicalDeltaX;
       calibrationType = 'US Region';
-      units = UNIT_MAPPING[region.physicalUnitsXDirection] || 'unknown';
-      areaUnits = units + SQUARE;
+      unit = UNIT_MAPPING[region.physicalUnitsXDirection] || 'unknown';
+      areaUnit = unit + SQUARE;
     } else {
       // here we are showing at the aspect ratio of the physical delta
       // if they are not the same, then we should show px, but the correct solution
       // is to grab each point separately and scale them individually
       // Todo: implement this
-      return { units: PIXEL_UNITS, areaUnits: PIXEL_UNITS + SQUARE, scale };
+      return {
+        unit: PIXEL_UNITS,
+        areaUnit: PIXEL_UNITS + SQUARE,
+        scale,
+      };
     }
   } else if (calibration.scale) {
     scale = calibration.scale;
@@ -146,8 +167,8 @@ const getCalibratedLengthUnitsAndScale = (image, handles) => {
   }
 
   return {
-    units: units + (calibrationType ? ` ${calibrationType}` : ''),
-    areaUnits: areaUnits + (calibrationType ? ` ${calibrationType}` : ''),
+    unit: unit + (calibrationType ? ` ${calibrationType}` : ''),
+    areaUnit: areaUnit + (calibrationType ? ` ${calibrationType}` : ''),
     scale,
   };
 };

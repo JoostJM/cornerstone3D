@@ -1,13 +1,12 @@
 {
-  "version": "1.82.4",
+  "version": "2.17.5",
   "packages": [
-    "packages/adapters",
     "packages/core",
     "packages/tools",
-    "packages/streaming-image-volume-loader",
+    "packages/adapters",
     "packages/nifti-volume-loader",
-    "packages/dicomImageLoader"
+    "packages/dicomImageLoader",
+    "packages/ai"
   ],
-  "npmClient": "yarn",
-  "useWorkspaces": true
+  "npmClient": "yarn"
 }

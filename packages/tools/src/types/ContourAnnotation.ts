@@ -1,5 +1,5 @@
 import type { Types } from '@cornerstonejs/core';
-import { Annotation } from './AnnotationTypes';
+import type { Annotation } from './AnnotationTypes';
 
 /**
  * Polyline winding direction
@@ -15,10 +15,12 @@ export enum ContourWindingDirection {
 
 export type ContourAnnotationData = {
   data: {
+    cachedStats?: Record<string, unknown>;
     contour: {
       polyline: Types.Point3[];
       closed: boolean;
       windingDirection?: ContourWindingDirection;
+      pointsManager?: Types.IPointsManager<Types.Point3>;
     };
   };
   onInterpolationComplete?: () => void;

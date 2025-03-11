@@ -16,7 +16,12 @@ type NamedStatistics = {
   area?: Statistics & { name: 'area' };
   volume?: Statistics & { name: 'volume' };
   circumference?: Statistics & { name: 'circumference' };
-  pointsInShape?: Types.PointsManager<Types.Point3>;
+  pointsInShape?: Types.IPointsManager<Types.Point3>;
+  /**
+   * A set of stats callback arguments containing maximum values.
+   * This can be used to test peak intensities in the areas.
+   */
+  maxIJKs?: Array<{ value: number; pointIJK: Types.Point3 }>;
   array: Statistics[];
 };
 

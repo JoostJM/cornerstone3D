@@ -1,13 +1,7 @@
-import type { Point2, Point3, PointsXYZ } from '../types';
-
-export type PolyDataPointConfiguration = {
-  /** The dimensionality of the points */
-  dimensions?: number;
-  /** The initial size of the backing array, not containing any data initially */
-  initialSize?: number;
-  /** The incremental size to grow by when required */
-  growSize?: number;
-};
+import type { IPointsManager, PolyDataPointConfiguration } from '../types';
+import type Point2 from '../types/Point2';
+import type Point3 from '../types/Point3';
+import type { PointsXYZ } from '../types/Point3';
 
 /**
  * PointsManager handles Point type data contained in a TypedArray representation
@@ -31,7 +25,7 @@ export default class PointsManager<T> {
    * Sources data for this array.  Just used for external access, not updated
    * here.
    */
-  public sources: PointsManager<T>[];
+  public sources: IPointsManager<T>[];
 
   data: Float32Array;
   _dimensions = 3;
@@ -73,11 +67,11 @@ export default class PointsManager<T> {
   }
 
   /**
-   * Returns a Float32Array view of the given point.
+   * Returns a `Float32Array` view of the given point.
    * Changes to the data in this point will affect the underlying data.
    *
-   * @param index  - positive index from start, or negative from end
-   * @returns Float32Array view onto the point at the given index
+   * @param index - positive index from start, or negative from end
+   * @returns `Float32Array` view onto the point at the given index
    */
   public getPoint(index: number): T {
     if (index < 0) {
@@ -97,8 +91,8 @@ export default class PointsManager<T> {
    * Returns a `number[]` version of the given point.
    * Changes to the array will NOT affect the underlying data.
    *
-   * @param index  - positive index from start, or negative from end
-   * @returns A new number[] instance of the given point.
+   * @param index - positive index from start, or negative from end
+   * @returns A new `number[]` instance of the given point.
    */
   public getPointArray(index: number): T {
     const array = [];
@@ -154,6 +148,14 @@ export default class PointsManager<T> {
   }
 
   /**
+   * Gets the raw underlying data - note this can change.  Use for fast calculations
+   * on a fully filled array.
+   */
+  public getTypedArray() {
+    return this.data;
+  }
+
+  /**
    * Push a new point onto this arrays object
    */
   public push(point: T) {
@@ -177,8 +179,8 @@ export default class PointsManager<T> {
   }
 
   /**
-   * A points object containing Float32Array instances referring to the underlying
-   * data, contained in a FloatArray32[] instance.
+   * A points object containing `Float32Array` instances referring to the underlying
+   * data, contained in a `FloatArray32[]` instance.
    * Note - changes to the data store will directly affect the points value
    * returned here, even if stored separately.
    */
@@ -212,10 +214,10 @@ export default class PointsManager<T> {
   }
 
   /**
-   * Create an PointsArray3 from the x,y,z individual arrays (see toXYZ)
-   * Will create a Point3 array even if z is missing, with 0 as the value.
+   * Create an `PointsArray3` from the x,y,z individual arrays (see toXYZ)
+   * Will create a `Point3` array even if z is missing, with 0 as the value.
    */
-  public static fromXYZ({ x, y, z }: PointsXYZ): PointsManager<Point3> {
+  public static fromXYZ({ x, y, z }: PointsXYZ): IPointsManager<Point3> {
     const array = PointsManager.create3(x.length);
     let offset = 0;
     for (let i = 0; i < x.length; i++) {
@@ -231,7 +233,7 @@ export default class PointsManager<T> {
    * Select the given number of points from the array, evenly spaced at the
    * given offset (which must be between `(-count,count)`)
    */
-  public subselect(count = 10, offset = 0): PointsManager<T> {
+  public subselect(count = 10, offset = 0): IPointsManager<T> {
     const selected = new PointsManager<T>({
       initialSize: count,
       dimensions: this._dimensions,
@@ -245,14 +247,24 @@ export default class PointsManager<T> {
   }
 
   /**
-   * Create a PointsManager<Point3> instance with available capacity of initialSize
+   * Create a `PointsManager<Point3>` instance with available capacity of `initialSize`
+   *
+   * @param initialSize - the starting size of the underlying array, however, it will still
+   *        be empty of actual data initially.
+   * @param points - a set of points to add to the points array.  Makes it easy to copy
+   *      a set of points into a `PointsManager`.
    */
-  public static create3(initialSize = 128) {
-    return new PointsManager<Point3>({ initialSize, dimensions: 3 });
+  public static create3(initialSize = 128, points?: Point3[]) {
+    initialSize = Math.max(initialSize, points?.length || 0);
+    const newPoints = new PointsManager<Point3>({ initialSize, dimensions: 3 });
+    if (points) {
+      points.forEach((point) => newPoints.push(point));
+    }
+    return newPoints;
   }
 
   /**
-   * Create a PointsManager<Point2> instance with available capacity of initialSize
+   * Create a `PointsManager<Point2>` instance with available capacity of initialSize
    */
   public static create2(initialSize = 128) {
     return new PointsManager<Point2>({ initialSize, dimensions: 2 });

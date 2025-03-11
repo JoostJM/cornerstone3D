@@ -1,6 +1,6 @@
-import { PlanarFreehandContourSegmentationTool } from '../../../../../tools';
+import PlanarFreehandContourSegmentationTool from '../../../../../tools/annotation/PlanarFreehandContourSegmentationTool';
 import { addAnnotation } from '../../../../annotation/annotationState';
-import { RawContourData } from '../contourComputationStrategies';
+import type { RawContourData } from '../contourComputationStrategies';
 import { utilities, type Types } from '@cornerstonejs/core';
 
 /**
@@ -72,7 +72,7 @@ export function createAndAddContourSegmentationsFromClippedSurfaces(
 
         addAnnotation(contourSegmentationAnnotation, viewport.element);
 
-        const currentSet = annotationUIDsMap.get(segmentIndex) || new Set();
+        const currentSet = annotationUIDsMap?.get(segmentIndex) || new Set();
         currentSet.add(contourSegmentationAnnotation.annotationUID);
         annotationUIDsMap.set(segmentIndex, currentSet);
       }
