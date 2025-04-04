@@ -281,6 +281,7 @@ function _setLabelmapColorAndOpacity(
   }
 
   ofun.setClamping(false);
+  // @ts-ignore
   const labelmapActor = labelmapActorEntry.actor as vtkVolume;
 
   // @ts-ignore - fix type in vtk

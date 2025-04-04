@@ -3,10 +3,12 @@ import {
   getEnabledElement,
   VolumeViewport,
   BaseVolumeViewport,
+  cache,
   utilities,
 } from '@cornerstonejs/core';
 import { BaseTool } from './base';
 import type { PublicToolProps, ToolProps, EventTypes } from '../types';
+import type { IDynamicImageVolume } from '@cornerstonejs/core/types';
 
 /**
  * The StackScrollTool is a tool that allows the user to scroll through a
@@ -15,6 +17,7 @@ import type { PublicToolProps, ToolProps, EventTypes } from '../types';
 class StackScrollTool extends BaseTool {
   static toolName;
   deltaY: number;
+  deltaX: number;
   constructor(
     toolProps: PublicToolProps = {},
     defaultToolProps: ToolProps = {
@@ -28,6 +31,7 @@ class StackScrollTool extends BaseTool {
   ) {
     super(toolProps, defaultToolProps);
     this.deltaY = 1;
+    this.deltaX = 1;
   }
 
   mouseWheelCallback(evt: EventTypes.MouseWheelEventType) {
@@ -58,25 +62,42 @@ class StackScrollTool extends BaseTool {
     const { debounceIfNotLoaded, invert, loop } = this.configuration;
     const deltaPointY = deltaPoints.canvas[1];
 
-    /*console.debug(
-              evt.detail.startPoints.canvas,
-              evt.detail.lastPoints.canvas,
-              evt.detail.currentPoints.canvas,
-              evt.detail.deltaPoints.canvas,
-            );*/
-    const diff = [
-      Math.abs(startPoints.canvas[0] - lastPoints.canvas[0]),
-      Math.abs(startPoints.canvas[1] - lastPoints.canvas[1]),
-    ];
-    if (!diff.some((delta: number) => delta > 10)) {
-      return;
-    }
-    const direction = diff[0] > diff[1] ? 'x' : 'y';
-    console.debug(direction, diff);
-    const d_uid = viewport.displaySetInstanceUIDs;
     let volumeId;
     if (viewport instanceof VolumeViewport) {
+      const diff = [
+        Math.abs(startPoints.canvas[0] - lastPoints.canvas[0]),
+        Math.abs(startPoints.canvas[1] - lastPoints.canvas[1]),
+      ];
+      if (!diff.some((delta: number) => delta > 10)) {
+        return;
+      }
       volumeId = viewport.getVolumeId();
+      const volume = cache.getVolume(volumeId);
+      if (diff[0] > diff[1] && volume.isDynamicVolume()) {
+        const dynamicVolume = volume as IDynamicImageVolume;
+        const pixelsPerGroup = this._getPixelPerGroup(
+          viewport,
+          volume.numTimePoints
+        );
+        if (!pixelsPerGroup) {
+          return;
+        }
+        const deltaX = deltaPoints.canvas[0] + this.deltaX;
+        if (Math.abs(deltaX) >= pixelsPerGroup) {
+          const groupOffset = Math.round(deltaX / pixelsPerGroup);
+          const newDimensionGroupNumber =
+            dynamicVolume.dimensionGroupNumber + groupOffset;
+          dynamicVolume.dimensionGroupNumber = Math.max(
+            1,
+            Math.min(newDimensionGroupNumber, dynamicVolume.numDimensionGroups)
+          );
+
+          this.deltaX = deltaX % pixelsPerGroup;
+        } else {
+          this.deltaX = deltaX;
+        }
+        return;
+      }
     }
 
     const pixelsPerImage = this._getPixelPerImage(viewport);
@@ -130,6 +151,13 @@ class StackScrollTool extends BaseTool {
 
     // The Math.max here makes it easier to mouseDrag-scroll small or really large image stacks
     return Math.max(2, element.offsetHeight / Math.max(numberOfSlices, 8));
+  }
+
+  _getPixelPerGroup(viewport, numTimepoints) {
+    const { element } = viewport;
+
+    // The Math.max here makes it easier to mouseDrag-scroll small or really large image stacks
+    return Math.max(2, element.offsetWidth / Math.max(numTimepoints, 8));
   }
 }
 

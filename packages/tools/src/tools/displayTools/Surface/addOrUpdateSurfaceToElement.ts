@@ -105,6 +105,7 @@ function addOrUpdateSurfaceToElement(
 
   viewport.addActor({
     uid: utilities.uuidv4(),
+    // @ts-ignore
     actor: actor as vtkActor,
     clippingFilter,
     representationUID,

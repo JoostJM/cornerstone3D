@@ -49,6 +49,7 @@ export async function addVolumesAsIndependentComponents({
   // need to remove the old actor/mapper and convert it to a new one
   // which the segmentation data is added as a second component to the volume data
   const defaultActor = viewport.getDefaultActor();
+  // @ts-ignore
   const { actor } = defaultActor as { actor: vtkVolume };
   const { uid, callback } = defaultActor;
 
@@ -124,6 +125,7 @@ export async function addVolumesAsIndependentComponents({
   actor.getProperty().setIndependentComponents(true);
 
   viewport.addActor({
+    // @ts-ignore
     actor,
     uid,
     callback,

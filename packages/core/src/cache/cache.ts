@@ -10,6 +10,7 @@ import type {
   ICachedGeometry,
   EventTypes,
   IImageVolume,
+  IDynamicImageVolume,
 } from '../types';
 import triggerEvent from '../utilities/triggerEvent';
 import imageIdToURI from '../utilities/imageIdToURI';
@@ -1131,7 +1132,7 @@ class Cache {
   public getVolume = (
     volumeId: string,
     allowPartialMatch = false
-  ): IImageVolume | undefined => {
+  ): IDynamicImageVolume | IImageVolume | undefined => {
     if (volumeId === undefined) {
       throw new Error('getVolume: volumeId must not be undefined');
     }
