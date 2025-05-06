@@ -6,6 +6,7 @@ import {
   utilities,
 } from '@cornerstonejs/core';
 import type { EventTypes } from '../types';
+import type { OpacityMapping } from '@cornerstonejs/core/types/Colormap';
 
 // Todo: should move to configuration
 const DEFAULT_MULTIPLIER = 4;
@@ -75,9 +76,15 @@ class WindowLevelTool extends BaseTool {
     // directions, and if the viewport is a volumeViewport, the multiplier
     // is calculated using the volume min and max.
     const isFusion = viewport._actors && viewport._actors.size > 1;
+    let new_properties = {};
     if (isFusion) {
+      const volPort = viewport as VolumeViewport;
+      const actors = volPort.getActors();
+      volumeId = actors[actors.length - 1].referencedId;
+      const properties = volPort.getProperties(volumeId);
+
       const { opacity } = properties.colormap;
-      const opacity_count = (opacity as any).length;
+      const opacity_count = (opacity as OpacityMapping[])?.length;
       if (opacity_count) {
         opacity[opacity_count - 1].opacity = this.getFusionNewRange({
           deltaPointsCanvas: deltaPoints.canvas,
@@ -95,12 +102,9 @@ class WindowLevelTool extends BaseTool {
           volumeId,
         });
       }
-      viewport.setProperties(
-        {
-          colormap: properties.colormap,
-        },
-        volumeId
-      );
+      new_properties = {
+        colormap: properties.colormap,
+      };
     } else {
       if (modality === PT) {
         newRange = this.getPTScaledNewRange({
@@ -127,23 +131,17 @@ class WindowLevelTool extends BaseTool {
         return;
       }
 
-      viewport.setProperties(
-        {
-          voiRange: newRange,
-        },
-        volumeId
-      );
+      new_properties = {
+        voiRange: newRange,
+      };
     }
 
-    viewport.render();
-
     if (viewport instanceof VolumeViewport) {
-      viewportsContainingVolumeUID.forEach((vp) => {
-        if (viewport !== vp) {
-          vp.render();
-        }
-      });
-      return;
+      viewport.setProperties(new_properties, volumeId);
+      viewportsContainingVolumeUID.forEach((vp) => vp.render());
+    } else {
+      viewport.setProperties(new_properties);
+      viewport.render();
     }
   }
 
@@ -211,14 +209,8 @@ class WindowLevelTool extends BaseTool {
 
     windowWidth = Math.max(windowWidth, 1);
 
-    const voiLutFunction = viewport.getProperties().VOILUTFunction;
-
     // Convert back to range
-    return utilities.windowLevel.toLowHighRange(
-      windowWidth,
-      windowCenter,
-      voiLutFunction
-    );
+    return utilities.windowLevel.toLowHighRange(windowWidth, windowCenter);
   }
 
   _getMultiplierFromDynamicRange(viewport, volumeId) {

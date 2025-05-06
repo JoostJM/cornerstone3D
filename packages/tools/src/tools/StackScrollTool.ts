@@ -73,7 +73,7 @@ class StackScrollTool extends BaseTool {
     }
     const direction = diff[0] > diff[1] ? 'x' : 'y';
     console.debug(direction, diff);
-    const d_uid = viewport.displaySetInstanceUIDs;
+    //const d_uid = viewport.displaySetInstanceUIDs;
     let volumeId;
     if (viewport instanceof VolumeViewport) {
       volumeId = viewport.getVolumeId();
