@@ -21,7 +21,7 @@ import {
   drawRedactionRect as drawRedactionRectSvg,
 } from '../../drawingSvg';
 import { state } from '../../store/state';
-import { Events } from '../../enums';
+import { ChangeTypes, Events } from '../../enums';
 import { getViewportIdsWithToolToRender } from '../../utilities/viewportFilters';
 import * as rectangle from '../../utilities/math/rectangle';
 import {
@@ -36,6 +36,8 @@ import getWorldWidthAndHeightFromTwoPoints from '../../utilities/planar/getWorld
 import type { VideoRedactionAnnotation } from '../../types/ToolSpecificAnnotationTypes';
 
 class VideoRedactionTool extends AnnotationTool {
+  static toolName = 'VideoRedaction';
+
   _throttledCalculateCachedStats: Function;
   editData: {
     annotation: Annotation;
@@ -71,22 +73,20 @@ class VideoRedactionTool extends AnnotationTool {
     const { viewport } = enabledElement;
 
     this.isDrawing = true;
-    const annotation =
-      VideoRedactionTool.createAnnotationForViewport<VideoRedactionAnnotation>(
-        viewport,
-        {
-          data: {
-            handles: {
-              points: [
-                <Types.Point3>[...worldPos],
-                <Types.Point3>[...worldPos],
-                <Types.Point3>[...worldPos],
-                <Types.Point3>[...worldPos],
-              ],
-            },
-          },
-        }
-      );
+    const annotation = (<typeof AnnotationTool>(
+      this.constructor
+    )).createAnnotationForViewport<VideoRedactionAnnotation>(viewport, {
+      data: {
+        handles: {
+          points: [
+            <Types.Point3>[...worldPos],
+            <Types.Point3>[...worldPos],
+            <Types.Point3>[...worldPos],
+            <Types.Point3>[...worldPos],
+          ],
+        },
+      },
+    });
 
     addAnnotation(annotation, element);
 
@@ -702,18 +702,21 @@ class VideoRedactionTool extends AnnotationTool {
       }
     }
 
-    data.invalidated = false;
+    const invalidated = annotation.invalidated;
+    annotation.invalidated = false;
 
-    // Dispatching measurement modified
-    const eventType = Events.ANNOTATION_MODIFIED;
-
-    const eventDetail = {
-      annotation,
-      viewportUID,
-      renderingEngineUID,
-      sceneUID: sceneUID,
-    };
-    triggerEvent(eventTarget, eventType, eventDetail);
+    // Dispatching measurement modified only if it was invalidated
+    if (invalidated) {
+      const eventType = Events.ANNOTATION_MODIFIED;
+      const eventDetail = {
+        annotation,
+        viewportUID,
+        renderingEngineUID,
+        sceneUID: sceneUID,
+        changeType: ChangeTypes.StatsUpdated,
+      };
+      triggerEvent(eventTarget, eventType, eventDetail);
+    }
 
     return cachedStats;
   };
@@ -745,5 +748,4 @@ class VideoRedactionTool extends AnnotationTool {
   };
 }
 
-VideoRedactionTool.toolName = 'VideoRedaction';
 export default VideoRedactionTool;

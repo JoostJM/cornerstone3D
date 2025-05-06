@@ -28,7 +28,7 @@ import {
   drawLinkedTextBox as drawLinkedTextBoxSvg,
 } from '../../drawingSvg';
 import { state } from '../../store/state';
-import { Events } from '../../enums';
+import { ChangeTypes, Events } from '../../enums';
 import { getViewportIdsWithToolToRender } from '../../utilities/viewportFilters';
 import { getTextBoxCoordsCanvas } from '../../utilities/drawing';
 import getWorldWidthAndHeightFromTwoPoints from '../../utilities/planar/getWorldWidthAndHeightFromTwoPoints';
@@ -107,7 +107,7 @@ const { transformWorldToIndex } = csUtils;
  */
 
 class EllipticalROITool extends AnnotationTool {
-  static toolName;
+  static toolName = 'EllipticalROI';
 
   _throttledCalculateCachedStats: Function;
   editData: {
@@ -137,6 +137,7 @@ class EllipticalROITool extends AnnotationTool {
         // Radius of the circle to draw  at the center point of the ellipse.
         // Set this zero(0) in order not to draw the circle.
         centerPointRadius: 0,
+        calculateStats: true,
         getTextLines: defaultGetTextLines,
         statsCalculator: BasicStatsCalculator,
       },
@@ -156,26 +157,27 @@ class EllipticalROITool extends AnnotationTool {
     points: Types.Point3[],
     options?: {
       annotationUID?: string;
+      toolInstance?: EllipticalROITool;
+      referencedImageId?: string;
+      viewplaneNormal?: Types.Point3;
+      viewUp?: Types.Point3;
     }
   ): EllipticalROIAnnotation => {
     const enabledElement = getEnabledElementByViewportId(viewportId);
     if (!enabledElement) {
       return;
     }
-    const { viewport } = enabledElement;
-    const FrameOfReferenceUID = viewport.getFrameOfReferenceUID();
-
-    const { viewPlaneNormal, viewUp } = viewport.getCamera();
-
-    // This is a workaround to access the protected method getReferencedImageId
-    // we should make those static too
-    const instance = new this();
-
-    const referencedImageId = instance.getReferencedImageId(
-      viewport,
-      points[0],
+    const {
+      FrameOfReferenceUID,
+      referencedImageId,
       viewPlaneNormal,
-      viewUp
+      instance,
+      viewport,
+    } = this.hydrateBase<EllipticalROITool>(
+      EllipticalROITool,
+      enabledElement,
+      points,
+      options
     );
 
     const annotation = {
@@ -550,6 +552,7 @@ class EllipticalROITool extends AnnotationTool {
     this.editData.hasMoved = true;
 
     triggerAnnotationRenderForViewportIds(viewportIdsToRender);
+    triggerAnnotationModified(annotation, element, ChangeTypes.HandlesUpdated);
   };
 
   _dragModifyCallback = (evt: EventTypes.InteractionEventType): void => {
@@ -601,6 +604,14 @@ class EllipticalROITool extends AnnotationTool {
     const { renderingEngine } = enabledElement;
 
     triggerAnnotationRenderForViewportIds(viewportIdsToRender);
+
+    if (annotation.invalidated) {
+      triggerAnnotationModified(
+        annotation,
+        element,
+        ChangeTypes.HandlesUpdated
+      );
+    }
   };
 
   _dragHandle = (evt: EventTypes.InteractionEventType): void => {
@@ -1016,6 +1027,9 @@ class EllipticalROITool extends AnnotationTool {
   };
 
   _calculateCachedStats = (annotation, viewport, renderingEngine) => {
+    if (!this.configuration.calculateStats) {
+      return;
+    }
     const data = annotation.data;
     const { element } = viewport;
 
@@ -1160,10 +1174,13 @@ class EllipticalROITool extends AnnotationTool {
       };
     }
 
+    const invalidated = annotation.invalidated;
     annotation.invalidated = false;
 
-    // Dispatching annotation modified
-    triggerAnnotationModified(annotation, element);
+    // Dispatching annotation modified only if it was invalidated
+    if (invalidated) {
+      triggerAnnotationModified(annotation, element, ChangeTypes.StatsUpdated);
+    }
 
     return cachedStats;
   };
@@ -1249,5 +1266,4 @@ function defaultGetTextLines(data, targetId): string[] {
   return textLines;
 }
 
-EllipticalROITool.toolName = 'EllipticalROI';
 export default EllipticalROITool;

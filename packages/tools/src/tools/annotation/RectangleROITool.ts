@@ -27,7 +27,7 @@ import {
   drawRectByCoordinates as drawRectSvg,
 } from '../../drawingSvg';
 import { state } from '../../store/state';
-import { Events } from '../../enums';
+import { ChangeTypes, Events } from '../../enums';
 import { getViewportIdsWithToolToRender } from '../../utilities/viewportFilters';
 import * as rectangle from '../../utilities/math/rectangle';
 import { getTextBoxCoordsCanvas } from '../../utilities/drawing';
@@ -95,7 +95,7 @@ const { transformWorldToIndex } = csUtils;
  */
 
 class RectangleROITool extends AnnotationTool {
-  static toolName;
+  static toolName = 'RectangleROI';
 
   _throttledCalculateCachedStats: Function;
   editData: {
@@ -118,6 +118,7 @@ class RectangleROITool extends AnnotationTool {
         storePointData: false,
         shadow: true,
         preventHandleOutsideImage: false,
+        calculateStats: true,
         getTextLines: defaultGetTextLines,
         statsCalculator: BasicStatsCalculator,
       },
@@ -152,32 +153,31 @@ class RectangleROITool extends AnnotationTool {
 
     this.isDrawing = true;
 
-    const annotation =
-      RectangleROITool.createAnnotationForViewport<RectangleROIAnnotation>(
-        viewport,
-        {
-          data: {
-            handles: {
-              points: [
-                <Types.Point3>[...worldPos],
-                <Types.Point3>[...worldPos],
-                <Types.Point3>[...worldPos],
-                <Types.Point3>[...worldPos],
-              ],
-              textBox: {
-                hasMoved: false,
-                worldPosition: <Types.Point3>[0, 0, 0],
-                worldBoundingBox: {
-                  topLeft: <Types.Point3>[0, 0, 0],
-                  topRight: <Types.Point3>[0, 0, 0],
-                  bottomLeft: <Types.Point3>[0, 0, 0],
-                  bottomRight: <Types.Point3>[0, 0, 0],
-                },
-              },
+    const annotation = (<typeof AnnotationTool>(
+      this.constructor
+    )).createAnnotationForViewport<RectangleROIAnnotation>(viewport, {
+      data: {
+        handles: {
+          points: [
+            <Types.Point3>[...worldPos],
+            <Types.Point3>[...worldPos],
+            <Types.Point3>[...worldPos],
+            <Types.Point3>[...worldPos],
+          ],
+          textBox: {
+            hasMoved: false,
+            worldPosition: <Types.Point3>[0, 0, 0],
+            worldBoundingBox: {
+              topLeft: <Types.Point3>[0, 0, 0],
+              topRight: <Types.Point3>[0, 0, 0],
+              bottomLeft: <Types.Point3>[0, 0, 0],
+              bottomRight: <Types.Point3>[0, 0, 0],
             },
           },
-        }
-      );
+        },
+        cachedStats: {},
+      },
+    });
 
     addAnnotation(annotation, element);
 
@@ -479,6 +479,14 @@ class RectangleROITool extends AnnotationTool {
     const enabledElement = getEnabledElement(element);
 
     triggerAnnotationRenderForViewportIds(viewportIdsToRender);
+
+    if (annotation.invalidated) {
+      triggerAnnotationModified(
+        annotation,
+        element,
+        ChangeTypes.HandlesUpdated
+      );
+    }
   };
 
   cancel = (element: HTMLDivElement) => {
@@ -834,6 +842,9 @@ class RectangleROITool extends AnnotationTool {
     renderingEngine,
     enabledElement
   ) => {
+    if (!this.configuration.calculateStats) {
+      return;
+    }
     const { data } = annotation;
     const { viewport } = enabledElement;
     const { element } = viewport;
@@ -953,10 +964,13 @@ class RectangleROITool extends AnnotationTool {
       }
     }
 
+    const invalidated = annotation.invalidated;
     annotation.invalidated = false;
 
-    // Dispatching annotation modified
-    triggerAnnotationModified(annotation, element);
+    // Dispatching annotation modified only if it was invalidated
+    if (invalidated) {
+      triggerAnnotationModified(annotation, element, ChangeTypes.StatsUpdated);
+    }
 
     return cachedStats;
   };
@@ -973,26 +987,27 @@ class RectangleROITool extends AnnotationTool {
     points: Types.Point3[],
     options?: {
       annotationUID?: string;
+      toolInstance?: RectangleROITool;
+      referencedImageId?: string;
+      viewplaneNormal?: Types.Point3;
+      viewUp?: Types.Point3;
     }
   ): RectangleROIAnnotation => {
     const enabledElement = getEnabledElementByViewportId(viewportId);
     if (!enabledElement) {
       return;
     }
-    const { viewport } = enabledElement;
-    const FrameOfReferenceUID = viewport.getFrameOfReferenceUID();
-
-    const { viewPlaneNormal, viewUp } = viewport.getCamera();
-
-    // This is a workaround to access the protected method getReferencedImageId
-    // we should make those static too
-    const instance = new this();
-
-    const referencedImageId = instance.getReferencedImageId(
-      viewport,
-      points[0],
+    const {
+      FrameOfReferenceUID,
+      referencedImageId,
       viewPlaneNormal,
-      viewUp
+      instance,
+      viewport,
+    } = this.hydrateBase<RectangleROITool>(
+      RectangleROITool,
+      enabledElement,
+      points,
+      options
     );
 
     const annotation = {
@@ -1036,7 +1051,7 @@ function defaultGetTextLines(data, targetId: string): string[] {
   const cachedVolumeStats = data.cachedStats[targetId];
   const { area, mean, max, stdDev, areaUnit, modalityUnit } = cachedVolumeStats;
 
-  if (mean === undefined) {
+  if (mean === undefined || mean === null) {
     return;
   }
 
@@ -1050,5 +1065,4 @@ function defaultGetTextLines(data, targetId: string): string[] {
   return textLines;
 }
 
-RectangleROITool.toolName = 'RectangleROI';
 export default RectangleROITool;

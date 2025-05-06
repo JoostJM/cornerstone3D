@@ -1,12 +1,15 @@
-import { getEnabledElement } from '@cornerstonejs/core';
+import { getEnabledElement, eventTarget } from '@cornerstonejs/core';
 import type { Types } from '@cornerstonejs/core';
 import { vec3, vec2 } from 'gl-matrix';
+import { Events, ToolModes, StrategyCallbacks } from '../../enums';
 
 import type {
   PublicToolProps,
   ToolProps,
   EventTypes,
   SVGDrawingHelper,
+  LabelmapToolOperationDataVolume,
+  LabelmapToolOperationDataStack,
 } from '../../types';
 import {
   fillInsideSphere,
@@ -19,7 +22,6 @@ import {
   fillInsideCircle,
 } from './strategies/fillCircle';
 import { eraseInsideCircle } from './strategies/eraseCircle';
-import { Events, ToolModes, StrategyCallbacks } from '../../enums';
 import { drawCircle as drawCircleSvg } from '../../drawingSvg';
 import {
   resetElementCursor,
@@ -28,6 +30,7 @@ import {
 
 import triggerAnnotationRenderForViewportUIDs from '../../utilities/triggerAnnotationRenderForViewportIds';
 import LabelmapBaseTool from './LabelmapBaseTool';
+import { getStrategyData } from './strategies/utils/getStrategyData';
 
 /**
  * @public
@@ -71,20 +74,16 @@ class BrushTool extends LabelmapBaseTool {
           THRESHOLD_INSIDE_SPHERE_WITH_ISLAND_REMOVAL:
             thresholdInsideSphereIsland,
         },
-
-        strategySpecificConfiguration: {
-          THRESHOLD: {
-            threshold: [-150, -70], // E.g. CT Fat // Only used during threshold strategies.
-          },
-        },
         defaultStrategy: 'FILL_INSIDE_CIRCLE',
         activeStrategy: 'FILL_INSIDE_CIRCLE',
-        thresholdVolumeId: null,
         brushSize: 25,
+        useCenterSegmentIndex: false,
         preview: {
           // Have to enable the preview to use this
           enabled: false,
-          previewColors: {},
+          previewColors: {
+            0: [255, 255, 255, 128],
+          },
           // The time before showing a preview
           previewTimeMs: 250,
           // The distance to move to show a preview before preview time expired
@@ -102,6 +101,56 @@ class BrushTool extends LabelmapBaseTool {
                 key: 'Enter',
               },
             ],
+          },
+          [StrategyCallbacks.RejectPreview]: {
+            method: StrategyCallbacks.RejectPreview,
+            bindings: [
+              {
+                key: 'Escape',
+              },
+            ],
+          },
+          /**
+           * Pressing the i key will interpolate between labelmap slices,
+           * without distance or extent extrapolation.  This has to be used
+           * on overlapping segments.  That is, for two slices (axial, sagittal or coronal),
+           * with intervening slices, where the segments occupy the same area
+           * of the image, an interpolation between the two segments will
+           * created on intervening slices.
+           */
+          [StrategyCallbacks.Interpolate]: {
+            method: StrategyCallbacks.Interpolate,
+            bindings: [
+              {
+                key: 'i',
+              },
+            ],
+            configuration: {
+              useBallStructuringElement: true,
+              // noHeuristicAlignment: true,
+              noUseDistanceTransform: true,
+              noUseExtrapolation: true,
+            },
+          },
+          /**
+           * Pressing the e key will interpolate with the full set of defaults,
+           * that includes some distance/extent extrapolation, so can interpolate
+           * between SLIGHTLY non-overlapping labelmaps.  That is, if you have
+           * segments on two slices, and the slices occupy almost the same
+           * are on the two different slices, then the slices in between will
+           * be interpolated.  If the position is quite different, it may create
+           * an interpolation, but it won't be a very useful one as it will be
+           * two separate interpolations going to an empty space.
+           */
+          interpolateExtrapolation: {
+            method: StrategyCallbacks.Interpolate,
+            bindings: [
+              {
+                key: 'e',
+              },
+            ],
+            // Morphological interpolation config
+            configuration: {},
           },
         },
       },
@@ -191,8 +240,12 @@ class BrushTool extends LabelmapBaseTool {
       const { currentPoints, element } = evt.detail;
       const { canvas } = currentPoints;
 
-      const { preview, startPoint, timer, timerStart, isDrag } =
-        this._previewData;
+      const { startPoint, timer, timerStart, isDrag } = this._previewData;
+
+      if (isDrag) {
+        return;
+      }
+
       const delta = vec2.distance(canvas, startPoint);
       const time = Date.now() - timerStart;
       if (
@@ -203,7 +256,7 @@ class BrushTool extends LabelmapBaseTool {
           window.clearTimeout(timer);
           this._previewData.timer = null;
         }
-        if (preview && !isDrag) {
+        if (!isDrag) {
           this.rejectPreview(element);
         }
       }
@@ -220,13 +273,48 @@ class BrushTool extends LabelmapBaseTool {
   };
 
   previewCallback = () => {
-    this._previewData.timer = null;
-    if (this._previewData.preview) {
+    // Don't run the preview callback if we're currently dragging
+    if (this._previewData.isDrag) {
+      this._previewData.timer = null;
       return;
     }
+
+    this._previewData.timer = null;
+
+    // get strategy data
+    const operationData = this.getOperationData(this._previewData.element) as
+      | LabelmapToolOperationDataStack
+      | LabelmapToolOperationDataVolume;
+    const enabledElement = getEnabledElement(this._previewData.element);
+    if (!enabledElement) {
+      return;
+    }
+
+    const { viewport } = enabledElement;
+    // active strategy
+    const activeStrategy = this.configuration.activeStrategy;
+    const strategyData = getStrategyData({
+      operationData,
+      viewport,
+      strategy: activeStrategy,
+    });
+
+    if (!operationData) {
+      return;
+    }
+
+    const memo = this.createMemo(
+      operationData.segmentationId,
+      strategyData.segmentationVoxelManager
+    );
+
     this._previewData.preview = this.applyActiveStrategyCallback(
       getEnabledElement(this._previewData.element),
-      this.getOperationData(this._previewData.element),
+      {
+        ...operationData,
+        ...strategyData,
+        memo,
+      },
       StrategyCallbacks.Preview
     );
   };
@@ -269,13 +357,18 @@ class BrushTool extends LabelmapBaseTool {
     const { dragTimeMs, dragMoveDistance } = this.configuration.preview;
     if (
       !this._previewData.isDrag &&
-      this._previewData.preview &&
       Date.now() - this._previewData.timerStart < dragTimeMs &&
       delta < dragMoveDistance
     ) {
       // If we are showing a preview, then don't start dragging quite immediately
       // so that click up can accept the preview.
       return;
+    }
+
+    // Clear any pending preview timer when dragging starts
+    if (this._previewData.timer) {
+      window.clearTimeout(this._previewData.timer);
+      this._previewData.timer = null;
     }
 
     this._previewData.preview = this.applyActiveStrategy(
@@ -382,6 +475,7 @@ class BrushTool extends LabelmapBaseTool {
     }
 
     this.doneEditMemo();
+
     this._deactivateDraw(element);
 
     resetElementCursor(element);
@@ -414,6 +508,57 @@ class BrushTool extends LabelmapBaseTool {
     );
 
     return stats;
+  }
+
+  /**
+   * Cancels any preview view being shown, resetting any segments being shown.
+   */
+  public rejectPreview(element = this._previewData.element) {
+    if (!element) {
+      return;
+    }
+
+    this.doneEditMemo();
+
+    const enabledElement = getEnabledElement(element);
+    this.applyActiveStrategyCallback(
+      enabledElement,
+      this.getOperationData(element),
+      StrategyCallbacks.RejectPreview
+    );
+
+    this._previewData.preview = null;
+    this._previewData.isDrag = false;
+  }
+
+  /**
+   * Accepts a preview, marking it as the active segment.
+   */
+  public acceptPreview(element = this._previewData.element) {
+    if (!element) {
+      return;
+    }
+
+    // Call parent method to handle memo tracking
+    super.acceptPreview(element);
+  }
+
+  /**
+   * Performs interpolation on the active segment index
+   */
+  public interpolate(element, config) {
+    if (!element) {
+      return;
+    }
+    const enabledElement = getEnabledElement(element);
+
+    this._previewData.preview = this.applyActiveStrategyCallback(
+      enabledElement,
+      this.getOperationData(element),
+      StrategyCallbacks.Interpolate,
+      config.configuration
+    );
+    this._previewData.isDrag = true;
   }
 
   /**
@@ -532,12 +677,12 @@ class BrushTool extends LabelmapBaseTool {
       radius,
       {
         color,
+        lineDash:
+          this.centerSegmentIndexInfo.segmentIndex === 0 ? [1, 2] : null,
       }
     );
 
-    const activeStrategy = this.configuration.activeStrategy;
-    const { dynamicRadiusInCanvas } = this.configuration
-      .strategySpecificConfiguration[activeStrategy] || {
+    const { dynamicRadiusInCanvas } = this.configuration?.threshold || {
       dynamicRadiusInCanvas: 0,
     };
 

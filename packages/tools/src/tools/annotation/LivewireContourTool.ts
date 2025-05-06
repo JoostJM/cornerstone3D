@@ -48,7 +48,8 @@ import { getCalibratedLengthUnitsAndScale, throttle } from '../../utilities';
 const CLICK_CLOSE_CURVE_SQR_DIST = 10 ** 2; // px
 
 class LivewireContourTool extends ContourSegmentationBaseTool {
-  public static toolName: string;
+  public static toolName = 'LivewireContour';
+
   protected scissors: LivewireScissors;
   /** The scissors from the next handle, used for editing */
   protected scissorsNext: LivewireScissors;
@@ -1094,11 +1095,17 @@ class LivewireContourTool extends ContourSegmentationBaseTool {
       };
     }
 
-    this.triggerAnnotationModified(
-      annotation,
-      enabledElement,
-      ChangeTypes.StatsUpdated
-    );
+    const invalidated = annotation.invalidated;
+    annotation.invalidated = false;
+
+    // Dispatching annotation modified only if it was invalidated
+    if (invalidated) {
+      this.triggerAnnotationModified(
+        annotation,
+        enabledElement,
+        ChangeTypes.StatsUpdated
+      );
+    }
 
     return cachedStats;
   };
@@ -1207,7 +1214,6 @@ class LivewireContourTool extends ContourSegmentationBaseTool {
   }
 }
 
-LivewireContourTool.toolName = 'LivewireContour';
 export default LivewireContourTool;
 
 function defaultGetTextLines(data, targetId): string[] {

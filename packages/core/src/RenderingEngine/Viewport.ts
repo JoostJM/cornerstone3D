@@ -904,7 +904,6 @@ class Viewport {
       this.setZoom(this.insetImageMultiplier * zoom, false);
     }
     if (imageCanvasPoint) {
-      console.log('Starting pan update zoom=', zoom);
       const { imagePoint, canvasPoint = imagePoint || [0.5, 0.5] } =
         imageCanvasPoint;
       const [canvasX, canvasY] = canvasPoint;
@@ -926,13 +925,6 @@ class Viewport {
       const newPositionY = imagePanY + canvasPanY;
 
       const deltaPoint2: Point2 = [newPositionX, newPositionY];
-      console.log(
-        'delta point',
-        newPositionX,
-        this.getPan()[0],
-        imagePanX,
-        canvasPanX
-      );
       // Use getPan from current for the setting
       vec2.add(deltaPoint2, deltaPoint2, this.getPan());
       // The pan is part of the display area settings, not the initial camera, so
@@ -1877,7 +1869,19 @@ class Viewport {
       this.setRotation(rotation);
     }
 
-    this.flip({ flipHorizontal, flipVertical });
+    // flip operation requires another re-render to take effect, so unfortunately
+    // right now if the view presentation requires a flip, it will flicker. The
+    // correct way to handle this is to wait for camera and flip together and then
+    // do one render
+    if (
+      flipHorizontal !== undefined &&
+      flipHorizontal !== this.flipHorizontal
+    ) {
+      this.flip({ flipHorizontal });
+    }
+    if (flipVertical !== undefined && flipVertical !== this.flipVertical) {
+      this.flip({ flipVertical });
+    }
   }
 
   _getCorners(bounds: number[]): number[][] {
