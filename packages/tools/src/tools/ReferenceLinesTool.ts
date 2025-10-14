@@ -53,7 +53,7 @@ class ReferenceLines extends AnnotationDisplayTool {
     // );
   }
 
-  _init = (): void => {
+  _init = (viewportId = null): void => {
     const renderingEngines = getRenderingEngines();
     const renderingEngine = renderingEngines[0];
 
@@ -66,7 +66,7 @@ class ReferenceLines extends AnnotationDisplayTool {
     viewports = filterViewportsWithToolEnabled(viewports, this.getToolName());
 
     const sourceViewport = renderingEngine.getViewport(
-      this.configuration.sourceViewportId
+      viewportId ?? this.configuration.sourceViewportId
     ) as Types.IVolumeViewport;
 
     if (!sourceViewport?.getImageData()) {
@@ -133,7 +133,7 @@ class ReferenceLines extends AnnotationDisplayTool {
     // we really don't care which viewport triggered the
     // camera modification, since we want to update all of them
     // with respect to the targetViewport
-    this._init();
+    this._init(evt?.detail?.viewportId);
   };
 
   /**
