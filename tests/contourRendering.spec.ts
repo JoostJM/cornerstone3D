@@ -1,4 +1,4 @@
-import { test } from '@playwright/test';
+import { test } from 'playwright-test-coverage';
 import {
   checkForScreenshot,
   visitExample,
@@ -13,7 +13,7 @@ test.describe('Contour Rendering', async () => {
   test('should add a contour as a segmentation to a volume viewport', async ({
     page,
   }) => {
-    const canvas = await page.locator('canvas');
+    const canvas = await page.locator('canvas.cornerstone-canvas');
 
     await checkForScreenshot(
       page,

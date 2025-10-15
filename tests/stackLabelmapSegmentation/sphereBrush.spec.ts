@@ -1,4 +1,4 @@
-import { test } from '@playwright/test';
+import { test } from 'playwright-test-coverage';
 import {
   checkForScreenshot,
   visitExample,
@@ -48,7 +48,7 @@ test('Stack Segmentation - Sphere Brush Tool', async ({
     }
   });
 
-  await page.waitForTimeout(1000);
+  await page.waitForTimeout(1500);
 
   await checkForScreenshot(
     page,

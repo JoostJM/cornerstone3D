@@ -1,4 +1,4 @@
-import { test } from '@playwright/test';
+import { test } from 'playwright-test-coverage';
 import {
   checkForScreenshot,
   visitExample,
@@ -22,6 +22,8 @@ test('Stack Segmentation - Circular Scissor Tool with segmentation 1', async ({
   const canvas = await page.locator('canvas').first();
 
   await drawCircleScissor(page, canvas);
+  await page.waitForTimeout(1500);
+
   await checkForScreenshot(
     page,
     canvas,

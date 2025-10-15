@@ -1,4 +1,4 @@
-import { test } from '@playwright/test';
+import { test } from 'playwright-test-coverage';
 import {
   checkForScreenshot,
   visitExample,
@@ -25,6 +25,8 @@ test('Stack Segmentation - Rectangle Scissor Tool with segmentation 2', async ({
     .click();
 
   await drawRectangleScissor(page, canvas);
+  await page.waitForTimeout(1500);
+
   await checkForScreenshot(
     page,
     canvas,

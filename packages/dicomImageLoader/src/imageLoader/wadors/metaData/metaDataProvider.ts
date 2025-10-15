@@ -81,6 +81,7 @@ function metaDataProvider(type, imageId) {
     return {
       modality: getValue<string>(metaData['00080060']),
       seriesInstanceUID: getValue<string>(metaData['0020000E']),
+      seriesDescription: getValue<string>(metaData['0008103E']),
       seriesNumber: getNumberValue(metaData['00200011']),
       studyInstanceUID: getValue<string>(metaData['0020000D']),
       seriesDate: dicomParser.parseDA(getValue<string>(metaData['00080021'])),
@@ -323,8 +324,17 @@ function metaDataProvider(type, imageId) {
   }
 
   if (type === MetadataModules.PET_SERIES) {
+    let correctedImageData = metaData['00280051'];
+    let correctedImage = getValue(metaData['00280051']);
+    if (
+      correctedImageData &&
+      correctedImageData.Value &&
+      Array.isArray(correctedImageData.Value)
+    ) {
+      correctedImage = correctedImageData.Value.join('\\');
+    }
     return {
-      correctedImage: getValue(metaData['00280051']),
+      correctedImage,
       units: getValue(metaData['00541001']),
       decayCorrection: getValue(metaData['00541102']),
     };

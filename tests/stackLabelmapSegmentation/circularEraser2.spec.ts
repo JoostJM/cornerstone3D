@@ -1,4 +1,4 @@
-import { test } from '@playwright/test';
+import { test } from 'playwright-test-coverage';
 import {
   checkForScreenshot,
   visitExample,
@@ -25,6 +25,8 @@ test('Stack Segmentation - Circular Eraser Tool with segmentation 2', async ({
     interpolateSteps: true,
     closePath: true,
   });
+
+  await page.waitForTimeout(1500);
 
   await page
     .getByRole('button', { name: 'Create New Segmentation on' })

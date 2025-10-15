@@ -19,7 +19,10 @@ type Properties =
   | 'textbox'
   | 'shadow'
   | 'visibility'
-  | 'markerSize';
+  | 'markerSize'
+  | 'angleArcLineDash'
+  | 'pointerStrokeWidth'
+  | 'showHandlesAlways';
 
 export type AnnotationStyle = {
   [key in `${Properties}${States}${Modes}`]?:

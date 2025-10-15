@@ -33,21 +33,22 @@ import type {
 } from '../types';
 import type {
   ViewportInput,
-  IViewport,
   ViewReferenceSpecifier,
   ReferenceCompatibleOptions,
   ViewPresentationSelector,
   DataSetOptions,
+  PlaneRestriction,
 } from '../types/IViewport';
 import type { vtkSlabCamera } from './vtkClasses/vtkSlabCamera';
 import type IImageCalibration from '../types/IImageCalibration';
 import { InterpolationType } from '../enums';
 import type vtkRenderer from '@kitware/vtk.js/Rendering/Core/Renderer';
 import type vtkActor from '@kitware/vtk.js/Rendering/Core/Actor';
-import type vtkProp from '@kitware/vtk.js/Rendering/Core/Prop';
 import type vtkImageData from '@kitware/vtk.js/Common/DataModel/ImageData';
 import type vtkMapper from '@kitware/vtk.js/Rendering/Core/Mapper';
 import { deepClone } from '../utilities/deepClone';
+import { updatePlaneRestriction } from '../utilities/updatePlaneRestriction';
+import { getConfiguration } from '../init';
 
 /**
  * An object representing a single viewport, which is a camera
@@ -97,7 +98,10 @@ class Viewport {
   /**
    * The amount by which the images are inset in a viewport by default.
    */
-  protected insetImageMultiplier = 1.1;
+  protected insetImageMultiplier = getConfiguration().rendering
+    ?.useLegacyCameraFOV
+    ? 1.1
+    : 1;
 
   protected flipHorizontal = false;
   protected flipVertical = false;
@@ -195,6 +199,15 @@ class Viewport {
     return Array.from(this.viewportWidgets.values());
   };
 
+  /**
+   * Get render passes for this viewport.
+   * Viewports can override this to provide custom render passes (e.g., for sharpening).
+   * @returns Array of VTK render passes or null if no custom passes are needed
+   */
+  public getRenderPasses = () => {
+    return null;
+  };
+
   public removeWidgets = () => {
     const widgets = this.getWidgets();
     widgets.forEach((widget) => {
@@ -225,6 +238,34 @@ class Viewport {
       return;
     }
     this.viewportStatus = ViewportStatus.RENDERED;
+  }
+
+  /**
+   *  This applies a color transform as an svg filter to the output image.
+   */
+  protected setColorTransform(voiRange, averageWhite) {
+    let feFilter = null;
+    if (!voiRange && !averageWhite) {
+      return;
+    }
+    const white = averageWhite || [255, 255, 255];
+    const maxWhite = Math.max(...white);
+    const scaleWhite = white.map((c) => maxWhite / c);
+    const { lower = 0, upper = 255 } = voiRange || {};
+    const wlScale = (upper - lower + 1) / 255;
+    const wlDelta = lower / 255;
+    feFilter = `url('data:image/svg+xml,\
+      <svg xmlns="http://www.w3.org/2000/svg">\
+        <filter id="colour" color-interpolation-filters="linearRGB">\
+        <feColorMatrix type="matrix" \
+        values="\
+          ${scaleWhite[0] * wlScale} 0 0 0 ${wlDelta} \
+          0 ${scaleWhite[1] * wlScale} 0 0 ${wlDelta} \
+          0 0 ${scaleWhite[2] * wlScale} 0 ${wlDelta} \
+          0 0 0 1 0" />\
+        </filter>\
+      </svg>#colour')`;
+    return feFilter;
   }
 
   /**
@@ -522,25 +563,40 @@ class Viewport {
    * @param actors - An array of ActorEntry objects.
    */
   public setActors(actors: ActorEntry[]): void {
+    const currentActors = this.getActors();
     this.removeAllActors();
     // when we set the actor we need to reset the camera to initialize the
     // camera focal point with the bounds of the actors.
     this.addActors(actors, { resetCamera: true });
+
+    triggerEvent(this.element, Events.ACTORS_CHANGED, {
+      viewportId: this.id,
+      removedActors: currentActors,
+      addedActors: actors,
+      currentActors: actors,
+    });
   }
 
   /**
    * Remove the actor from the viewport
    * @param actorUID - The unique identifier for the actor.
+   * @returns The removed actor entry or undefined if it didn't exist
    */
-  _removeActor(actorUID: string): void {
+  _removeActor(actorUID: string): ActorEntry | undefined {
     const actorEntry = this.getActor(actorUID);
+
     if (!actorEntry) {
-      console.warn(`Actor ${actorUID} does not exist for this viewport`);
+      console.warn(
+        `Actor ${actorUID} does not exist in ${this.id}, can't remove`
+      );
       return;
     }
+
     const renderer = this.getRenderer();
-    renderer.removeViewProp(actorEntry.actor as vtkProp); // removeActor not implemented in vtk?
+    renderer.removeActor(actorEntry.actor as vtkActor);
     this._actors.delete(actorUID);
+
+    return actorEntry;
   }
 
   /**
@@ -548,8 +604,21 @@ class Viewport {
    * @param actorUIDs - An array of actor UIDs to remove.
    */
   public removeActors(actorUIDs: string[]): void {
+    const removedActors: ActorEntry[] = [];
+
     actorUIDs.forEach((actorUID) => {
-      this._removeActor(actorUID);
+      const removedActor = this._removeActor(actorUID);
+      if (removedActor) {
+        removedActors.push(removedActor);
+      }
+    });
+
+    const currentActors = this.getActors();
+    triggerEvent(this.element, Events.ACTORS_CHANGED, {
+      viewportId: this.id,
+      removedActors,
+      addedActors: [],
+      currentActors,
     });
   }
 
@@ -576,15 +645,28 @@ class Viewport {
       this.addActor(actor);
     });
 
-    const prevViewPresentation = this.getViewPresentation();
-    const prevViewRef = this.getViewReference();
-
-    this.resetCamera();
-
+    // In the case of loading a new volume with WADO-URI, we may not have loaded
+    // metadata for all imageIds, as they are streaming in. The
+    // getViewReference() call uses getClosestImageId() in its call stack, which
+    // will error in that scenario as it tries to loop over all imageId
+    // metadata. So only call getViewReference if necessary.
     if (!resetCamera) {
+      const prevViewPresentation = this.getViewPresentation();
+      const prevViewRef = this.getViewReference();
+      this.resetCamera();
       this.setViewReference(prevViewRef);
       this.setViewPresentation(prevViewPresentation);
+    } else {
+      this.resetCamera();
     }
+
+    // Trigger ACTORS_CHANGED event after adding actors
+    triggerEvent(this.element, Events.ACTORS_CHANGED, {
+      viewportId: this.id,
+      removedActors: [],
+      addedActors: actors,
+      currentActors: this.getActors(),
+    });
   }
 
   /**
@@ -622,14 +704,32 @@ class Viewport {
     // when we add an actor we should update the camera clipping range and
     // clipping planes as well
     this.updateCameraClippingPlanesAndRange();
+
+    // Trigger ACTORS_CHANGED event for individual actor addition
+    triggerEvent(this.element, Events.ACTORS_CHANGED, {
+      viewportId: this.id,
+      removedActors: [],
+      addedActors: [actorEntry],
+      currentActors: this.getActors(),
+    });
   }
 
   /**
    * Remove all actors from the renderer
    */
   public removeAllActors(): void {
+    const currentActors = this.getActors();
     this.getRenderer()?.removeAllViewProps();
     this._actors = new Map();
+
+    // Trigger ACTORS_CHANGED event when removing all actors
+    triggerEvent(this.element, Events.ACTORS_CHANGED, {
+      viewportId: this.id,
+      removedActors: currentActors,
+      addedActors: [],
+      currentActors: [],
+    });
+
     return;
   }
 
@@ -637,9 +737,10 @@ class Viewport {
    * Reset the camera to the default viewport camera without firing events
    */
   protected resetCameraNoEvent(): void {
+    const savedValue = this._suppressCameraModifiedEvents; // save the value pf the flag to restore it later
     this._suppressCameraModifiedEvents = true;
     this.resetCamera();
-    this._suppressCameraModifiedEvents = false;
+    this._suppressCameraModifiedEvents = savedValue;
   }
 
   /**
@@ -647,9 +748,10 @@ class Viewport {
    * @param camera - The camera to use for the viewport.
    */
   protected setCameraNoEvent(camera: ICamera): void {
+    const savedValue = this._suppressCameraModifiedEvents; // save the value pf the flag to restore it later
     this._suppressCameraModifiedEvents = true;
     this.setCamera(camera);
-    this._suppressCameraModifiedEvents = false;
+    this._suppressCameraModifiedEvents = savedValue;
   }
 
   /**
@@ -977,7 +1079,18 @@ class Viewport {
     });
 
     const previousCamera = this.getCamera();
-    const bounds = renderer.computeVisiblePropBounds();
+    let bounds;
+    const defaultActor = this.getDefaultActor();
+
+    if (defaultActor && isImageActor(defaultActor)) {
+      // Use the default actor's bounds
+      const imageData = defaultActor.actor.getMapper().getInputData();
+      bounds = imageData.getBounds();
+    } else {
+      // Fallback to all actors if no default image actor is found
+      bounds = renderer.computeVisiblePropBounds();
+    }
+
     const focalPoint = [0, 0, 0] as Point3;
     const imageData = this.getDefaultImageData();
 
@@ -1016,8 +1129,24 @@ class Viewport {
       imageData.indexToWorld(idx, focalPoint);
     }
 
-    const { widthWorld, heightWorld } =
-      this._getWorldDistanceViewUpAndViewRight(bounds, viewUp, viewPlaneNormal);
+    let widthWorld;
+    let heightWorld;
+    const config = getConfiguration();
+    const useLegacyMethod = config.rendering?.useLegacyCameraFOV ?? false;
+
+    if (imageData && !useLegacyMethod) {
+      const extent = imageData.getExtent();
+      const spacing = imageData.getSpacing();
+
+      widthWorld = (extent[1] - extent[0]) * spacing[0];
+      heightWorld = (extent[3] - extent[2]) * spacing[1];
+    } else {
+      ({ widthWorld, heightWorld } = this._getWorldDistanceViewUpAndViewRight(
+        bounds,
+        viewUp,
+        viewPlaneNormal
+      ));
+    }
 
     const canvasSize = [this.sWidth, this.sHeight];
 
@@ -1729,14 +1858,64 @@ class Viewport {
       viewPlaneNormal,
       viewUp,
     } = this.getCamera();
+    const FrameOfReferenceUID = this.getFrameOfReferenceUID();
     const target: ViewReference = {
-      FrameOfReferenceUID: this.getFrameOfReferenceUID(),
+      FrameOfReferenceUID,
       cameraFocalPoint,
       viewPlaneNormal,
       viewUp,
       sliceIndex: viewRefSpecifier?.sliceIndex ?? this.getSliceIndex(),
+      /** The referenced plane is the canonical specifier for whether
+       * this view reference is visible or not.
+       */
+      planeRestriction: {
+        FrameOfReferenceUID,
+        point: viewRefSpecifier?.points?.[0] || cameraFocalPoint,
+        inPlaneVector1: viewUp,
+        inPlaneVector2: <Point3>(
+          vec3.cross(vec3.create(), viewUp, viewPlaneNormal)
+        ),
+      },
     };
+    if (viewRefSpecifier?.points) {
+      updatePlaneRestriction(viewRefSpecifier.points, target.planeRestriction);
+    }
     return target;
+  }
+
+  public isPlaneViewable(
+    planeRestriction: PlaneRestriction,
+    options?: ReferenceCompatibleOptions
+  ): boolean {
+    if (
+      planeRestriction.FrameOfReferenceUID !== this.getFrameOfReferenceUID()
+    ) {
+      return false;
+    }
+    const { focalPoint, viewPlaneNormal } = this.getCamera();
+    const { point, inPlaneVector1, inPlaneVector2 } = planeRestriction;
+    if (options?.withOrientation) {
+      // Don't need to check the normal or the navigation if asking as a volume
+      // since those can both be updated
+      return true;
+    }
+    if (
+      inPlaneVector1 &&
+      !isEqual(0, vec3.dot(viewPlaneNormal, inPlaneVector1))
+    ) {
+      return false;
+    }
+    if (
+      inPlaneVector2 &&
+      !isEqual(0, vec3.dot(viewPlaneNormal, inPlaneVector2))
+    ) {
+      return false;
+    }
+    if (options?.withNavigation) {
+      return true;
+    }
+    const pointVector = vec3.sub(vec3.create(), point, focalPoint);
+    return isEqual(0, vec3.dot(pointVector, viewPlaneNormal));
   }
 
   /**
@@ -1749,6 +1928,9 @@ class Viewport {
     viewRef: ViewReference,
     options?: ReferenceCompatibleOptions
   ): boolean {
+    if (viewRef.planeRestriction) {
+      return this.isPlaneViewable(viewRef.planeRestriction, options);
+    }
     if (
       viewRef.FrameOfReferenceUID &&
       viewRef.FrameOfReferenceUID !== this.getFrameOfReferenceUID()
@@ -1865,9 +2047,6 @@ class Viewport {
     if (pan) {
       this.setPan(vec2.scale([0, 0], pan, zoom) as Point2);
     }
-    if (rotation >= 0) {
-      this.setRotation(rotation);
-    }
 
     // flip operation requires another re-render to take effect, so unfortunately
     // right now if the view presentation requires a flip, it will flicker. The
@@ -1881,6 +2060,9 @@ class Viewport {
     }
     if (flipVertical !== undefined && flipVertical !== this.flipVertical) {
       this.flip({ flipVertical });
+    }
+    if (rotation >= 0) {
+      this.setRotation(rotation);
     }
   }
 

@@ -96,8 +96,9 @@ import type vtkRenderer from '@kitware/vtk.js/Rendering/Core/Renderer';
 import uuidv4 from '../utilities/uuidv4';
 import getSpacingInNormalDirection from '../utilities/getSpacingInNormalDirection';
 import getClosestImageId from '../utilities/getClosestImageId';
-
-const EPSILON = 1; // Slice Thickness
+import { adjustInitialViewUp } from '../utilities/adjustInitialViewUp';
+import { isContextPoolRenderingEngine } from './helpers/isContextPoolRenderingEngine';
+import { createSharpeningRenderPass } from './renderPasses';
 
 export interface ImageDataMetaData {
   bitsAllocated: number;
@@ -165,6 +166,7 @@ class StackViewport extends Viewport {
   private colormap: ColormapPublic | CPUFallbackColormapData;
   private voiRange: VOIRange;
   private voiUpdatedWithSetProperties = false;
+  private sharpening: number = 0;
   private VOILUTFunction: VOILUTFunctionType;
   //
   private invert = false;
@@ -233,6 +235,8 @@ class StackViewport extends Viewport {
   };
 
   private _configureRenderingPipeline(value?: boolean) {
+    const isContextPool = isContextPoolRenderingEngine();
+
     this.useCPURendering = value ?? getShouldUseCPURendering();
 
     for (const key in this.renderingPipelineFunctions) {
@@ -243,7 +247,21 @@ class StackViewport extends Viewport {
         )
       ) {
         const functions = this.renderingPipelineFunctions[key];
-        this[key] = this.useCPURendering ? functions.cpu : functions.gpu;
+        if (this.useCPURendering) {
+          this[key] = functions.cpu;
+        } else {
+          if (
+            typeof functions.gpu === 'object' &&
+            functions.gpu.tiled &&
+            functions.gpu.contextPool
+          ) {
+            this[key] = isContextPool
+              ? functions.gpu.contextPool
+              : functions.gpu.tiled;
+          } else {
+            this[key] = functions.gpu;
+          }
+        }
       }
     }
 
@@ -351,13 +369,6 @@ class StackViewport extends Viewport {
   public worldToCanvas: (worldPos: Point3) => Point2;
 
   /**
-   * If the renderer is CPU based, throw an error. Otherwise, returns the `vtkRenderer` responsible for rendering the `Viewport`.
-   *
-   * @returns The `vtkRenderer` for the `Viewport`.
-   */
-  public getRenderer: () => vtkRenderer;
-
-  /**
    * If the renderer is CPU based, throw an error. Otherwise, return the default
    * actor which is the first actor in the renderer.
    * @returns An actor entry.
@@ -417,6 +428,43 @@ class StackViewport extends Viewport {
   private setColormap: (
     colormap: CPUFallbackColormapData | ColormapPublic
   ) => void;
+
+  /**
+   * Sets the sharpening for the current viewport.
+   * @param sharpening - The sharpening configuration to use.
+   */
+  private setSharpening = (sharpening: number): void => {
+    // Store sharpening settings directly on the class
+    this.sharpening = sharpening;
+
+    this.render();
+  };
+
+  /**
+   * Check if custom render passes should be used for this viewport.
+   * @returns True if custom render passes should be used, false otherwise
+   */
+  protected shouldUseCustomRenderPass(): boolean {
+    return this.sharpening > 0 && !this.useCPURendering;
+  }
+
+  /**
+   * Get render passes for this viewport.
+   * If sharpening is enabled, returns appropriate render passes.
+   * @returns Array of VTK render passes or null if no custom passes are needed
+   */
+  public getRenderPasses = () => {
+    if (!this.shouldUseCustomRenderPass()) {
+      return null;
+    }
+
+    try {
+      return [createSharpeningRenderPass(this.sharpening)];
+    } catch (e) {
+      console.warn('Failed to create sharpening render passes:', e);
+      return null;
+    }
+  };
 
   private initializeElementDisabledHandler() {
     eventTarget.addEventListener(
@@ -674,6 +722,7 @@ class StackViewport extends Viewport {
       VOILUTFunction,
       invert,
       interpolationType,
+      sharpening,
     }: StackViewportProperties = {},
     suppressEvents = false
   ): void {
@@ -691,6 +740,7 @@ class StackViewport extends Viewport {
       invert: this.globalDefaultProperties.invert ?? invert,
       interpolationType:
         this.globalDefaultProperties.interpolationType ?? interpolationType,
+      sharpening: this.globalDefaultProperties.sharpening ?? sharpening,
     };
 
     if (typeof colormap !== 'undefined') {
@@ -713,6 +763,10 @@ class StackViewport extends Viewport {
 
     if (typeof interpolationType !== 'undefined') {
       this.setInterpolationType(interpolationType);
+    }
+
+    if (typeof sharpening !== 'undefined') {
+      this.setSharpening(sharpening);
     }
   }
 
@@ -758,6 +812,7 @@ class StackViewport extends Viewport {
       interpolationType,
       invert,
       isComputedVOI: !voiUpdatedWithSetProperties,
+      sharpening: this.sharpening,
     };
   };
 
@@ -1041,7 +1096,7 @@ class StackViewport extends Viewport {
   private getPanCPU(): Point2 {
     const { viewport } = this._cpuFallbackEnabledElement;
 
-    return [viewport.translation.x, viewport.translation.y];
+    return [viewport.translation?.x ?? 0, viewport.translation?.y ?? 0];
   }
 
   private setPanCPU(pan: Point2): void {
@@ -1096,25 +1151,23 @@ class StackViewport extends Viewport {
       viewUp: currentViewUp,
       viewPlaneNormal,
       flipVertical,
+      flipHorizontal,
     } = this.getCameraNoRotation();
 
-    // The initial view up vector without any rotation, but incorporating vertical flip.
-    const initialViewUp = flipVertical
-      ? vec3.negate(vec3.create(), this.initialViewUp)
-      : this.initialViewUp;
-
+    const adjustedViewUp = adjustInitialViewUp(
+      this.initialViewUp,
+      flipHorizontal,
+      flipVertical,
+      viewPlaneNormal
+    );
     // The angle between the initial and current view up vectors.
     // TODO: check with VTK about rounding errors here.
-    const initialToCurrentViewUpAngle =
-      (vec3.angle(initialViewUp, currentViewUp) * 180) / Math.PI;
-
-    // Now determine if initialToCurrentViewUpAngle is positive or negative by comparing
-    // the direction of the initial/current view up cross product with the current
-    // viewPlaneNormal.
+    const angleRad = vec3.angle(adjustedViewUp, currentViewUp);
+    const initialToCurrentViewUpAngle = (angleRad * 180) / Math.PI;
 
     const initialToCurrentViewUpCross = vec3.cross(
       vec3.create(),
-      initialViewUp,
+      adjustedViewUp,
       currentViewUp
     );
 
@@ -1193,19 +1246,24 @@ class StackViewport extends Viewport {
     const pan = this.getPan();
     const panSub = vec2.sub([0, 0], panFit, pan) as Point2;
     this.setPan(panSub, false);
-    const { flipVertical } = this.getCamera();
+    const { flipVertical, flipHorizontal, viewPlaneNormal } = this.getCamera();
 
-    // Moving back to zero rotation, for new scrolled slice rotation is 0 after camera reset
-    const initialViewUp = flipVertical
-      ? vec3.negate(vec3.create(), this.initialViewUp)
-      : this.initialViewUp;
+    const adjustedViewUp = adjustInitialViewUp(
+      this.initialViewUp,
+      flipHorizontal,
+      flipVertical,
+      viewPlaneNormal
+    );
 
+    // Reset camera to adjusted initial viewUp
     this.setCameraNoEvent({
-      viewUp: initialViewUp as Point3,
+      viewUp: adjustedViewUp as Point3,
     });
 
     // rotating camera to the new value
     this.getVtkActiveCamera().roll(-rotation);
+
+    // Adjust the pan to bring the center back
     const afterPan = this.getPan();
     const afterPanFit = this.getPan(this.fitToCanvasCamera);
     const newCenter = vec2.sub([0, 0], afterPan, afterPanFit);
@@ -1883,6 +1941,12 @@ class StackViewport extends Viewport {
 
     this._imageData.setOrigin(origin);
 
+    // change actor referencedId to image.imageId
+    const actor = this.getActor(this.id);
+    if (actor) {
+      actor.referencedId = image.imageId;
+    }
+
     // Update the pixel data in the vtkImageData object with the pixelData
     // from the loaded Cornerstone image
     updateVTKImageDataWithCornerstoneImage(this._imageData, image);
@@ -2183,7 +2247,7 @@ class StackViewport extends Viewport {
     };
     triggerEvent(this.element, Events.PRE_STACK_NEW_IMAGE, eventDetail);
 
-    return this.imagesLoader.loadImages([imageId], this).then((v) => {
+    return this.imagesLoader.loadImages([imageId], this).then(() => {
       return imageId;
     });
   }
@@ -2407,7 +2471,7 @@ class StackViewport extends Viewport {
     if (oldActors.length && oldActors[0].uid === this.id) {
       oldActors[0].actor = actor;
     } else {
-      oldActors.unshift({ uid: this.id, actor });
+      oldActors.unshift({ uid: this.id, actor, referencedId: image.imageId });
     }
     this.setActors(oldActors);
 
@@ -2688,6 +2752,7 @@ class StackViewport extends Viewport {
 
     // Otherwise, get the imageId and attempt to display it
     const imageIdPromise = this._setImageIdIndex(imageIdIndex);
+    this.targetImageIdIndex = imageIdIndex;
 
     return imageIdPromise;
   }
@@ -2815,7 +2880,70 @@ class StackViewport extends Viewport {
     return canvasPoint;
   };
 
-  private canvasToWorldGPU = (canvasPos: Point2): Point3 => {
+  private canvasToWorldGPUContextPool = (canvasPos: Point2): Point3 => {
+    const renderer = this.getRenderer();
+
+    // Temporary setting the clipping range to the distance and distance + 0.1
+    // in order to calculate the transformations correctly.
+    // This is similar to the vtkSlabCamera isPerformingCoordinateTransformations
+    // You can read more about it here there.
+    const vtkCamera = this.getVtkActiveCamera();
+    const crange = vtkCamera.getClippingRange();
+    const distance = vtkCamera.getDistance();
+
+    vtkCamera.setClippingRange(distance, distance + 0.1);
+
+    const devicePixelRatio = window.devicePixelRatio || 1;
+    const { width, height } = this.canvas;
+    const aspectRatio = width / height;
+
+    // Convert canvas coordinates to normalized display coordinates
+    const canvasPosWithDPR = [
+      canvasPos[0] * devicePixelRatio,
+      canvasPos[1] * devicePixelRatio,
+    ];
+
+    // Get the actual renderer viewport bounds to account for context pool sizing
+    const viewport = renderer.getViewport() as unknown as number[];
+    const [xStart, yStart, xEnd, yEnd] = viewport;
+
+    // Scale normalized coordinates to account for the actual renderer viewport
+    // The renderer viewport might be smaller than 1.0 when using context pool
+    const viewportWidth = xEnd - xStart;
+    const viewportHeight = yEnd - yStart;
+
+    // Normalize to the actual viewport range, not the full canvas
+    const normalizedDisplay = [
+      xStart + (canvasPosWithDPR[0] / width) * viewportWidth,
+      yStart + (1 - canvasPosWithDPR[1] / height) * viewportHeight, // Flip Y axis
+      0,
+    ];
+
+    // Transform from normalized display to world coordinates
+    const projCoords = renderer.normalizedDisplayToProjection(
+      normalizedDisplay[0],
+      normalizedDisplay[1],
+      normalizedDisplay[2]
+    );
+    const viewCoords = renderer.projectionToView(
+      projCoords[0],
+      projCoords[1],
+      projCoords[2],
+      aspectRatio
+    );
+    const worldCoord = renderer.viewToWorld(
+      viewCoords[0],
+      viewCoords[1],
+      viewCoords[2]
+    );
+
+    // set clipping range back to original to be able
+    vtkCamera.setClippingRange(crange[0], crange[1]);
+
+    return [worldCoord[0], worldCoord[1], worldCoord[2]];
+  };
+
+  private canvasToWorldGPUTiled = (canvasPos: Point2): Point3 => {
     const renderer = this.getRenderer();
 
     // Temporary setting the clipping range to the distance and distance + 0.1
@@ -2835,6 +2963,7 @@ class StackViewport extends Viewport {
     const size = openGLRenderWindow.getSize();
 
     const devicePixelRatio = window.devicePixelRatio || 1;
+
     const canvasPosWithDPR = [
       canvasPos[0] * devicePixelRatio,
       canvasPos[1] * devicePixelRatio,
@@ -2860,7 +2989,67 @@ class StackViewport extends Viewport {
     return [worldCoord[0], worldCoord[1], worldCoord[2]];
   };
 
-  private worldToCanvasGPU = (worldPos: Point3): Point2 => {
+  private worldToCanvasGPUContextPool = (worldPos: Point3): Point2 => {
+    const renderer = this.getRenderer();
+
+    // Temporary setting the clipping range to the distance and distance + 0.1
+    // in order to calculate the transformations correctly.
+    // This is similar to the vtkSlabCamera isPerformingCoordinateTransformations
+    // You can read more about it here there.
+    const vtkCamera = this.getVtkActiveCamera();
+    const crange = vtkCamera.getClippingRange();
+    const distance = vtkCamera.getDistance();
+
+    vtkCamera.setClippingRange(distance, distance + 0.1);
+
+    const devicePixelRatio = window.devicePixelRatio || 1;
+
+    const { width, height } = this.canvas;
+
+    const aspectRatio = width / height;
+
+    const viewCoords = renderer.worldToView(
+      worldPos[0],
+      worldPos[1],
+      worldPos[2]
+    );
+
+    const projCoords = renderer.viewToProjection(
+      viewCoords[0],
+      viewCoords[1],
+      viewCoords[2],
+      aspectRatio
+    );
+
+    const normalizedDisplay = renderer.projectionToNormalizedDisplay(
+      projCoords[0],
+      projCoords[1],
+      projCoords[2]
+    );
+
+    // Get the actual renderer viewport bounds to account for context pool sizing
+    const viewport = renderer.getViewport() as unknown as number[];
+    const [xStart, yStart, xEnd, yEnd] = viewport;
+    const viewportWidth = xEnd - xStart;
+    const viewportHeight = yEnd - yStart;
+
+    // Unscale from the actual renderer viewport to canvas coordinates
+    const canvasX = ((normalizedDisplay[0] - xStart) / viewportWidth) * width;
+    const canvasY =
+      (1 - (normalizedDisplay[1] - yStart) / viewportHeight) * height;
+
+    // set clipping range back to original to be able
+    vtkCamera.setClippingRange(crange[0], crange[1]);
+
+    const canvasCoordWithDPR = [
+      canvasX / devicePixelRatio,
+      canvasY / devicePixelRatio,
+    ] as Point2;
+
+    return canvasCoordWithDPR;
+  };
+
+  private worldToCanvasGPUTiled = (worldPos: Point3): Point2 => {
     const renderer = this.getRenderer();
 
     // Temporary setting the clipping range to the distance and distance + 0.1
@@ -2902,6 +3091,29 @@ class StackViewport extends Viewport {
 
     return canvasCoordWithDPR;
   };
+
+  /**
+   * Get the renderer for this viewport - handles ContextPoolRenderingEngine
+   */
+  public getRendererContextPool(): vtkRenderer {
+    const renderingEngine = this.getRenderingEngine();
+    return renderingEngine.getRenderer(this.id);
+  }
+
+  /**
+   * Returns the `vtkRenderer` responsible for rendering the `Viewport`.
+   *
+   * @returns The `vtkRenderer` for the `Viewport`.
+   */
+  public getRendererTiled(): vtkRenderer {
+    const renderingEngine = this.getRenderingEngine();
+
+    if (!renderingEngine || renderingEngine.hasBeenDestroyed) {
+      throw new Error('Rendering engine has been destroyed');
+    }
+
+    return renderingEngine.offscreenMultiRenderWindow?.getRenderer(this.id);
+  }
 
   private _getVOIRangeForCurrentImage() {
     const { windowCenter, windowWidth, voiLUTFunction } = this.csImage;
@@ -2988,7 +3200,7 @@ class StackViewport extends Viewport {
         return true;
       }
       viewRef.referencedImageURI ||= imageIdToURI(referencedImageId);
-      const { referencedImageURI: referencedImageURI } = viewRef;
+      const { referencedImageURI } = viewRef;
       const foundSliceIndex = this.imageKeyToIndexMap.get(referencedImageURI);
       if (options.asOverlay) {
         const matchedImageId = this.matchImagesForOverlay(
@@ -3011,11 +3223,18 @@ class StackViewport extends Viewport {
       return testIndex <= rangeEndSliceIndex && testIndex >= foundSliceIndex;
     }
 
-    if (!super.isReferenceViewable(viewRef, options)) {
+    // Apply asVolume to withOrientation to indicate allowing changing orientation
+    // only if this gets converted to a volume.
+    if (
+      !super.isReferenceViewable(viewRef, {
+        ...options,
+        withOrientation: options?.asVolume,
+      })
+    ) {
       return false;
     }
 
-    if (viewRef.volumeId) {
+    if (viewRef.volumeId || viewRef.FrameOfReferenceUID) {
       return options.asVolume;
     }
 
@@ -3093,7 +3312,7 @@ class StackViewport extends Viewport {
     }
     const { referencedImageId } = viewRef;
     viewRef.referencedImageURI ||= imageIdToURI(referencedImageId);
-    const { referencedImageURI: referencedImageURI } = viewRef;
+    const { referencedImageURI } = viewRef;
     const sliceIndex = this.imageKeyToIndexMap.get(referencedImageURI);
     if (sliceIndex === undefined) {
       log.error(`No image URI found for ${referencedImageURI}`);
@@ -3371,15 +3590,24 @@ class StackViewport extends Viewport {
     },
     canvasToWorld: {
       cpu: this.canvasToWorldCPU,
-      gpu: this.canvasToWorldGPU,
+      gpu: {
+        tiled: this.canvasToWorldGPUTiled,
+        contextPool: this.canvasToWorldGPUContextPool,
+      },
     },
     worldToCanvas: {
       cpu: this.worldToCanvasCPU,
-      gpu: this.worldToCanvasGPU,
+      gpu: {
+        tiled: this.worldToCanvasGPUTiled,
+        contextPool: this.worldToCanvasGPUContextPool,
+      },
     },
     getRenderer: {
       cpu: () => this.getCPUFallbackError('getRenderer'),
-      gpu: super.getRenderer,
+      gpu: {
+        tiled: this.getRendererTiled,
+        contextPool: this.getRendererContextPool,
+      },
     },
     getDefaultActor: {
       cpu: () => this.getCPUFallbackError('getDefaultActor'),

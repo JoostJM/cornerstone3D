@@ -68,41 +68,6 @@ abstract class AnnotationTool extends AnnotationDisplayTool {
   } | null;
 
   /**
-   * Creates a base annotation object, adding in any annotation base data provided
-   */
-  public static createAnnotation(...annotationBaseData): Annotation {
-    let annotation: Annotation = {
-      annotationUID: null as string,
-      highlighted: true,
-      invalidated: true,
-      metadata: {
-        toolName: this.toolName,
-      },
-      data: {
-        text: '',
-        handles: {
-          points: new Array<Types.Point3>(),
-          textBox: {
-            hasMoved: false,
-            worldPosition: <Types.Point3>[0, 0, 0],
-            worldBoundingBox: {
-              topLeft: <Types.Point3>[0, 0, 0],
-              topRight: <Types.Point3>[0, 0, 0],
-              bottomLeft: <Types.Point3>[0, 0, 0],
-              bottomRight: <Types.Point3>[0, 0, 0],
-            },
-          },
-        },
-        label: '',
-      },
-    } as unknown as Annotation;
-    for (const baseData of annotationBaseData) {
-      annotation = csUtils.deepMerge(annotation, baseData);
-    }
-    return annotation;
-  }
-
-  /**
    * Creates a new annotation for the given viewport.  This just adds the
    * viewport reference data to the metadata, and otherwise returns the
    * static class createAnnotation data.
@@ -436,6 +401,7 @@ abstract class AnnotationTool extends AnnotationDisplayTool {
 
     const lineWidth = getStyle('lineWidth') as string;
     const lineDash = getStyle('lineDash') as string;
+    const angleArcLineDash = getStyle('angleArcLineDash') as string;
     const color = getStyle('color') as string;
     const markerSize = getStyle('markerSize') as string;
     const shadow = getStyle('shadow') as boolean;
@@ -453,6 +419,7 @@ abstract class AnnotationTool extends AnnotationDisplayTool {
       shadow,
       textbox: textboxStyle,
       markerSize,
+      angleArcLineDash,
     } as AnnotationStyle;
   }
 
