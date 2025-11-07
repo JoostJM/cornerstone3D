@@ -73,14 +73,22 @@ function normalizeSegments(
 
   if (segmentsConfig) {
     Object.entries(segmentsConfig).forEach(([segmentIndex, segment]) => {
-      normalizedSegments[segmentIndex] = {
+      const { label, locked, cachedStats, active, ...rest } = segment;
+      const normalizedSegment = {
         segmentIndex: Number(segmentIndex),
-        label: segment.label ?? `Segment ${segmentIndex}`,
-        locked: segment.locked ?? false,
-        cachedStats: segment.cachedStats ?? {},
-        active: segment.active ?? false,
+        label: label ?? `Segment ${segmentIndex}`,
+        locked: locked ?? false,
+        cachedStats: cachedStats ?? {},
+        active: active ?? false,
+        ...rest,
       } as Segment;
+      normalizedSegments[segmentIndex] = normalizedSegment;
     });
+  } else if (type === SegmentationRepresentations.Contour) {
+    normalizeContourSegments(
+      normalizedSegments,
+      data as ContourSegmentationData
+    );
   } else if (type === SegmentationRepresentations.Surface) {
     normalizeSurfaceSegments(
       normalizedSegments,
@@ -91,6 +99,25 @@ function normalizeSegments(
   }
 
   return normalizedSegments;
+}
+
+/**
+ * Normalize surface segmentation segments using geometry data from cache.
+ * @param normalizedSegments - The object to store normalized segments.
+ * @param surfaceData - SurfaceSegmentationData to extract geometry information.
+ */
+function normalizeContourSegments(
+  normalizedSegments: { [key: number]: Segment },
+  contourData: ContourSegmentationData
+): void {
+  const { geometryIds } = contourData;
+  geometryIds?.forEach((geometryId) => {
+    const geometry = cache.getGeometry(geometryId) as Types.IGeometry;
+    if (geometry?.data) {
+      const { segmentIndex } = geometry.data as Types.IContourSet;
+      normalizedSegments[segmentIndex] = { segmentIndex } as Segment;
+    }
+  });
 }
 
 /**

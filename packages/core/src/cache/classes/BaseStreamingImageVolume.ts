@@ -334,13 +334,14 @@ export default class BaseStreamingImageVolume
       rescaleIntercept: modalityLutModule.rescaleIntercept,
       modality: generalSeriesModule.modality,
     };
+    const modality = scalingParameters.modality;
 
-    if (scalingParameters.modality === 'PT') {
-      const suvFactor = metaData.get('scalingModule', imageId);
+    if (modality === 'PT' || modality === 'RTDOSE') {
+      const scalingFactor = metaData.get('scalingModule', imageId);
 
-      if (suvFactor) {
-        this._addScalingToVolume(suvFactor);
-        scalingParameters.suvbw = suvFactor.suvbw;
+      if (scalingFactor) {
+        this._addScalingToVolume(scalingFactor);
+        Object.assign(scalingParameters, scalingFactor);
       }
     }
 
@@ -404,6 +405,7 @@ export default class BaseStreamingImageVolume
         imageIdIndex,
         volumeId: this.volumeId,
       },
+      retrieveOptions: undefined,
     };
   }
 
@@ -469,6 +471,19 @@ export default class BaseStreamingImageVolume
       const requestType = requestTypeDefault;
       const priority = priorityDefault;
       const options = this.getLoaderImageOptions(imageId);
+
+      const { retrieveOptions = {} } =
+        metaData.get(
+          imageRetrieveMetadataProvider.IMAGE_RETRIEVE_CONFIGURATION,
+          imageId,
+          'volume'
+        ) || {};
+      options.retrieveOptions = {
+        ...options.retrieveOptions,
+        ...(retrieveOptions.default ||
+          Object.values(retrieveOptions)?.[0] ||
+          {}),
+      };
 
       return {
         callLoadImage: this.callLoadImage.bind(this),
