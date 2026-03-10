@@ -578,7 +578,7 @@ class PlanarFreehandROITool extends ContourSegmentationBaseTool {
     const annotation = renderContext.annotation as PlanarFreehandROIAnnotation;
 
     let renderStatus = false;
-    const { viewport, renderingEngine } = enabledElement;
+    const { viewport } = enabledElement;
 
     const isDrawing = this.isDrawing;
     const isEditingOpen = this.isEditingOpen;
@@ -656,7 +656,6 @@ class PlanarFreehandROITool extends ContourSegmentationBaseTool {
       annotation,
       targetId,
       viewport,
-      renderingEngine,
       enabledElement
     );
 
@@ -669,7 +668,6 @@ class PlanarFreehandROITool extends ContourSegmentationBaseTool {
     annotation: PlanarFreehandROIAnnotation,
     targetId: string,
     viewport,
-    renderingEngine,
     enabledElement
   ) {
     const activeAnnotationUID = this.commonData?.annotation.annotationUID;
@@ -694,29 +692,18 @@ class PlanarFreehandROITool extends ContourSegmentationBaseTool {
           unit: null,
         };
 
-        this._calculateCachedStats(
-          annotation,
-          viewport,
-          renderingEngine,
-          enabledElement
-        );
+        this._calculateCachedStats(annotation, viewport, enabledElement);
       } else if (annotation.invalidated) {
         this._throttledCalculateCachedStats(
           annotation,
           viewport,
-          renderingEngine,
           enabledElement
         );
       }
     }
   }
 
-  private _calculateCachedStats = (
-    annotation,
-    viewport,
-    renderingEngine,
-    enabledElement
-  ) => {
+  private _calculateCachedStats = (annotation, viewport, enabledElement) => {
     const { data } = annotation;
     const { cachedStats } = data;
     const { polyline: points, closed } = data.contour;

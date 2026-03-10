@@ -5,6 +5,7 @@ import {
   utilities,
   getEnabledElementByViewportId,
   Viewport,
+  utilities as csUtils,
 } from '@cornerstonejs/core';
 import type { Types, VolumeViewport } from '@cornerstonejs/core';
 import { vec3 } from 'gl-matrix';
@@ -58,7 +59,14 @@ import { LinearSpline } from './splines/LinearSpline';
 import { CatmullRomSpline } from './splines/CatmullRomSpline';
 import { BSpline } from './splines/BSpline';
 import ContourSegmentationBaseTool from '../base/ContourSegmentationBaseTool';
-import { triggerAnnotationRenderForViewportIds } from '../../utilities';
+import {
+  getPixelValueUnits,
+  triggerAnnotationRenderForViewportIds,
+} from '../../utilities';
+import { polyline } from '../../utilities/math';
+import { getLineSegmentIntersectionsCoordinates } from '../../utilities/math/polyline';
+import calculatePerimeter from '../../utilities/contours/calculatePerimeter';
+import { isViewportPreScaled } from '../../utilities/viewport';
 
 const SPLINE_MIN_POINTS = 3;
 const SPLINE_CLICK_CLOSE_CURVE_DIST = 10;
@@ -85,7 +93,7 @@ enum SplineToolActions {
 }
 
 class SplineLengthTool extends ContourSegmentationBaseTool {
-  static toolName = 'SplineLength';
+  static toolName = 'SplineROI';
   static SplineTypes = SplineTypesEnum;
   static Actions = SplineToolActions;
 
@@ -204,8 +212,6 @@ class SplineLengthTool extends ContourSegmentationBaseTool {
       getMouseModifierKey(evt.detail.event) ===
       this.configuration.contourHoleAdditionModifierKey;
 
-    const enabledElement = getEnabledElement(element);
-    const { renderingEngine } = enabledElement;
     const annotation = this.createAnnotation(evt) as SplineROIAnnotation;
 
     this.isDrawing = true;
@@ -413,7 +419,6 @@ class SplineLengthTool extends ContourSegmentationBaseTool {
     }
 
     const { element } = evt.detail;
-    const { renderingEngine } = getEnabledElement(element);
     const viewportIdsToRender = getViewportIdsWithToolToRender(
       element,
       this.getToolName()
@@ -427,10 +432,10 @@ class SplineLengthTool extends ContourSegmentationBaseTool {
 
   private _mouseDownCallback = (evt: EventTypes.InteractionEventType): void => {
     const doubleClick = evt.type === Events.MOUSE_DOUBLE_CLICK;
-    const { annotation, viewportIdsToRender } = this.editData;
+    const { annotation, viewportIdsToRender, newAnnotation } = this.editData;
     const { data } = annotation;
 
-    if (data.contour.closed) {
+    if (!newAnnotation) {
       return;
     }
 
@@ -441,7 +446,7 @@ class SplineLengthTool extends ContourSegmentationBaseTool {
     const eventDetail = evt.detail;
     const { currentPoints, element } = eventDetail;
     const { canvas: canvasPoint, world: worldPoint } = currentPoints;
-    let closeContour = data.handles.points.length >= 2 && doubleClick;
+    let closeContour = false;
     let addNewPoint = true;
 
     if (data.handles.points.length) {
@@ -473,7 +478,7 @@ class SplineLengthTool extends ContourSegmentationBaseTool {
     annotation.invalidated = true;
     triggerAnnotationRenderForViewportIds(viewportIdsToRender);
 
-    if (data.contour.closed) {
+    if (doubleClick || closeContour) {
       this._endCallback(evt);
     }
 
@@ -526,9 +531,6 @@ class SplineLengthTool extends ContourSegmentationBaseTool {
 
     this.editData.hasMoved = true;
 
-    const enabledElement = getEnabledElement(element);
-    const { renderingEngine } = enabledElement;
-
     triggerAnnotationRenderForViewportIds(viewportIdsToRender);
   };
 
@@ -550,9 +552,6 @@ class SplineLengthTool extends ContourSegmentationBaseTool {
     }
 
     super.cancelAnnotation(annotation);
-
-    const enabledElement = getEnabledElement(element);
-    const { renderingEngine } = enabledElement;
 
     triggerAnnotationRenderForViewportIds(viewportIdsToRender);
 
@@ -756,9 +755,9 @@ class SplineLengthTool extends ContourSegmentationBaseTool {
         areaUnit: null,
       };
 
-      this._calculateCachedStats(annotation, viewport);
+      this._calculateCachedStats(annotation, viewport, element);
     } else if (annotation.invalidated) {
-      this._throttledCalculateCachedStats(annotation, viewport);
+      this._throttledCalculateCachedStats(annotation, viewport, element);
     }
 
     let activeHandleCanvasCoords;
@@ -981,7 +980,7 @@ class SplineLengthTool extends ContourSegmentationBaseTool {
     const { element } = eventDetail;
 
     const enabledElement = getEnabledElement(element);
-    const { renderingEngine, viewport } = enabledElement;
+    const { viewport } = enabledElement;
     const { canvasToWorld } = viewport;
 
     const { instance: spline } = data.spline;
@@ -1134,11 +1133,18 @@ class SplineLengthTool extends ContourSegmentationBaseTool {
 
   private _calculateCachedStats = (
     annotation: SplineROIAnnotation,
-    viewport: Types.IStackViewport | VolumeViewport
+    viewport: Types.IStackViewport | VolumeViewport,
+    element: HTMLDivElement
   ) => {
     if (!this.configuration.calculateStats) {
       return;
     }
+    const enabledElement = getEnabledElement(element);
+
+    if (!enabledElement) {
+      return;
+    }
+
     const { data } = annotation;
     const { cachedStats } = data;
     const { polyline: points, closed } = data.contour;
@@ -1149,76 +1155,89 @@ class SplineLengthTool extends ContourSegmentationBaseTool {
       const targetId = targetIds[i];
       const image = this.getTargetImageData(targetId);
 
-      // If image does not exists for the targetId, skip. This can be due
+      // If image does not exist for the targetId, skip. This can be due
       // to various reasons such as if the target was a volumeViewport, and
       // the volumeViewport has been decached in the meantime.
       if (!image) {
         continue;
       }
 
-      const { metadata } = image;
+      const { imageData, metadata } = image;
       const canvasCoordinates = points.map((p) => viewport.worldToCanvas(p));
 
-      // Using an arbitrary start point (canvasPoint), calculate the
-      // mm spacing for the canvas in the X and Y directions.
-      const canvasPoint = canvasCoordinates[0];
-      const originalWorldPoint = viewport.canvasToWorld(canvasPoint);
-      const deltaXPoint = viewport.canvasToWorld([
-        canvasPoint[0] + 1,
-        canvasPoint[1],
-      ]);
-      const deltaYPoint = viewport.canvasToWorld([
-        canvasPoint[0],
-        canvasPoint[1] + 1,
-      ]);
-
-      const deltaInX = vec3.distance(originalWorldPoint, deltaXPoint);
-      const deltaInY = vec3.distance(originalWorldPoint, deltaYPoint);
-
-      const { imageData } = image;
-      const { scale, areaUnit } = getCalibratedLengthUnitsAndScale(
-        image,
-        () => {
-          const {
-            maxX: canvasMaxX,
-            maxY: canvasMaxY,
-            minX: canvasMinX,
-            minY: canvasMinY,
-          } = math.polyline.getAABB(canvasCoordinates);
-
-          const topLeftBBWorld = viewport.canvasToWorld([
-            canvasMinX,
-            canvasMinY,
-          ]);
-
-          const topLeftBBIndex = utilities.transformWorldToIndex(
-            imageData,
-            topLeftBBWorld
-          );
-
-          const bottomRightBBWorld = viewport.canvasToWorld([
-            canvasMaxX,
-            canvasMaxY,
-          ]);
-
-          const bottomRightBBIndex = utilities.transformWorldToIndex(
-            imageData,
-            bottomRightBBWorld
-          );
-
-          return [topLeftBBIndex, bottomRightBBIndex];
-        }
-      );
-      let area = math.polyline.getArea(canvasCoordinates) / scale / scale;
-
-      // Convert from canvas_pixels ^2 to mm^2
-      area *= deltaInX * deltaInY;
-
-      cachedStats[targetId] = {
-        Modality: metadata.Modality,
-        area,
-        areaUnit,
+      const modalityUnitOptions = {
+        isPreScaled: isViewportPreScaled(viewport, targetId),
+        isSuvScaled: this.isSuvScaled(
+          viewport,
+          targetId,
+          annotation.metadata.referencedImageId
+        ),
       };
+
+      const modalityUnit = getPixelValueUnits(
+        metadata.Modality,
+        annotation.metadata.referencedImageId,
+        modalityUnitOptions
+      );
+
+      const calibratedScale = getCalibratedLengthUnitsAndScale(image, () => {
+        const polyline = data.contour.polyline;
+        const numPoints = polyline.length;
+        const projectedPolyline = new Array(numPoints);
+
+        for (let i = 0; i < numPoints; i++) {
+          projectedPolyline[i] = viewport.worldToCanvas(polyline[i]);
+        }
+
+        const {
+          maxX: canvasMaxX,
+          maxY: canvasMaxY,
+          minX: canvasMinX,
+          minY: canvasMinY,
+        } = math.polyline.getAABB(projectedPolyline);
+
+        const topLeftBBWorld = viewport.canvasToWorld([canvasMinX, canvasMinY]);
+
+        const topLeftBBIndex = utilities.transformWorldToIndex(
+          imageData,
+          topLeftBBWorld
+        );
+
+        const bottomRightBBWorld = viewport.canvasToWorld([
+          canvasMaxX,
+          canvasMaxY,
+        ]);
+
+        const bottomRightBBIndex = utilities.transformWorldToIndex(
+          imageData,
+          bottomRightBBWorld
+        );
+
+        return [topLeftBBIndex, bottomRightBBIndex];
+      });
+
+      if (closed) {
+        this.updateClosedCachedStats({
+          targetId,
+          viewport,
+          canvasCoordinates,
+          points,
+          imageData,
+          metadata,
+          cachedStats,
+          modalityUnit,
+          calibratedScale,
+        });
+      } else {
+        this.updateOpenCachedStats({
+          targetId,
+          canvasCoordinates,
+          metadata,
+          cachedStats,
+          modalityUnit,
+          calibratedScale,
+        });
+      }
     }
 
     const invalidated = annotation.invalidated;
@@ -1235,6 +1254,179 @@ class SplineLengthTool extends ContourSegmentationBaseTool {
 
     return cachedStats;
   };
+
+  protected updateClosedCachedStats({
+    viewport,
+    points,
+    imageData,
+    metadata,
+    cachedStats,
+    targetId,
+    modalityUnit,
+    canvasCoordinates,
+    calibratedScale,
+  }) {
+    const { scale, areaUnit, unit } = calibratedScale;
+
+    // Using an arbitrary start point (canvasPoint), calculate the
+    // mm spacing for the canvas in the X and Y directions.
+    const { voxelManager } = viewport.getImageData();
+    const canvasPoint = canvasCoordinates[0];
+    const originalWorldPoint = viewport.canvasToWorld(canvasPoint);
+    const deltaXPoint = viewport.canvasToWorld([
+      canvasPoint[0] + 1,
+      canvasPoint[1],
+    ]);
+    const deltaYPoint = viewport.canvasToWorld([
+      canvasPoint[0],
+      canvasPoint[1] + 1,
+    ]);
+
+    const deltaInX = vec3.distance(originalWorldPoint, deltaXPoint);
+    const deltaInY = vec3.distance(originalWorldPoint, deltaYPoint);
+
+    const worldPosIndex = csUtils.transformWorldToIndex(imageData, points[0]);
+    worldPosIndex[0] = Math.floor(worldPosIndex[0]);
+    worldPosIndex[1] = Math.floor(worldPosIndex[1]);
+    worldPosIndex[2] = Math.floor(worldPosIndex[2]);
+
+    let iMin = worldPosIndex[0];
+    let iMax = worldPosIndex[0];
+
+    let jMin = worldPosIndex[1];
+    let jMax = worldPosIndex[1];
+
+    let kMin = worldPosIndex[2];
+    let kMax = worldPosIndex[2];
+
+    for (let j = 1; j < points.length; j++) {
+      const worldPosIndex = csUtils.transformWorldToIndex(imageData, points[j]);
+      worldPosIndex[0] = Math.floor(worldPosIndex[0]);
+      worldPosIndex[1] = Math.floor(worldPosIndex[1]);
+      worldPosIndex[2] = Math.floor(worldPosIndex[2]);
+      iMin = Math.min(iMin, worldPosIndex[0]);
+      iMax = Math.max(iMax, worldPosIndex[0]);
+
+      jMin = Math.min(jMin, worldPosIndex[1]);
+      jMax = Math.max(jMax, worldPosIndex[1]);
+
+      kMin = Math.min(kMin, worldPosIndex[2]);
+      kMax = Math.max(kMax, worldPosIndex[2]);
+    }
+
+    const worldPosIndex2 = csUtils.transformWorldToIndex(imageData, points[1]);
+    worldPosIndex2[0] = Math.floor(worldPosIndex2[0]);
+    worldPosIndex2[1] = Math.floor(worldPosIndex2[1]);
+    worldPosIndex2[2] = Math.floor(worldPosIndex2[2]);
+
+    let area = polyline.getArea(canvasCoordinates) / scale / scale;
+    // Convert from canvas_pixels ^2 to mm^2
+    area *= deltaInX * deltaInY;
+
+    // Expand bounding box
+    const iDelta = 0.01 * (iMax - iMin);
+    const jDelta = 0.01 * (jMax - jMin);
+    const kDelta = 0.01 * (kMax - kMin);
+
+    iMin = Math.floor(iMin - iDelta);
+    iMax = Math.ceil(iMax + iDelta);
+    jMin = Math.floor(jMin - jDelta);
+    jMax = Math.ceil(jMax + jDelta);
+    kMin = Math.floor(kMin - kDelta);
+    kMax = Math.ceil(kMax + kDelta);
+
+    const boundsIJK = [
+      [iMin, iMax],
+      [jMin, jMax],
+      [kMin, kMax],
+    ] as [Types.Point2, Types.Point2, Types.Point2];
+
+    const worldPosEnd = imageData.indexToWorld([iMax, jMax, kMax]);
+    const canvasPosEnd = viewport.worldToCanvas(worldPosEnd);
+
+    let curRow = 0;
+    let intersections = [];
+    let intersectionCounter = 0;
+    const pointsInShape = voxelManager.forEach(
+      this.configuration.statsCalculator.statsCallback,
+      {
+        imageData,
+        isInObject: (pointLPS, _pointIJK) => {
+          let result = true;
+          const point = viewport.worldToCanvas(pointLPS);
+          if (point[1] != curRow) {
+            intersectionCounter = 0;
+            curRow = point[1];
+            intersections = getLineSegmentIntersectionsCoordinates(
+              canvasCoordinates,
+              point,
+              [canvasPosEnd[0], point[1]]
+            );
+            intersections.sort(
+              (function (index) {
+                return function (a, b) {
+                  return a[index] === b[index]
+                    ? 0
+                    : a[index] < b[index]
+                    ? -1
+                    : 1;
+                };
+              })(0)
+            );
+          }
+          if (intersections.length && point[0] > intersections[0][0]) {
+            intersections.shift();
+            intersectionCounter++;
+          }
+          if (intersectionCounter % 2 === 0) {
+            result = false;
+          }
+          return result;
+        },
+        boundsIJK,
+        returnPoints: this.configuration.storePointData,
+      }
+    );
+
+    const stats = this.configuration.statsCalculator.getStatistics();
+
+    cachedStats[targetId] = {
+      Modality: metadata.Modality,
+      area,
+      perimeter: calculatePerimeter(canvasCoordinates, closed) / scale,
+      mean: stats.mean?.value,
+      max: stats.max?.value,
+      stdDev: stats.stdDev?.value,
+      statsArray: stats.array,
+      pointsInShape: pointsInShape,
+      /**
+       * areaUnit are sizing, eg mm^2 typically
+       * modality units are pixel value units, eg HU or other
+       * unit is linear measurement unit, eg mm
+       */
+      areaUnit,
+      modalityUnit,
+      unit,
+    };
+  }
+
+  protected updateOpenCachedStats({
+    targetId,
+    metadata,
+    canvasCoordinates,
+    cachedStats,
+    modalityUnit,
+    calibratedScale,
+  }) {
+    const { scale, unit } = calibratedScale;
+
+    cachedStats[targetId] = {
+      Modality: metadata.Modality,
+      length: calculatePerimeter(canvasCoordinates, false) / scale,
+      modalityUnit,
+      unit,
+    };
+  }
 
   static hydrate = (
     viewportId: string,
@@ -1262,7 +1454,6 @@ class SplineLengthTool extends ContourSegmentationBaseTool {
       FrameOfReferenceUID,
       referencedImageId,
       viewPlaneNormal,
-      viewUp,
       instance,
       viewport,
     } = this.hydrateBase<SplineLengthTool>(
