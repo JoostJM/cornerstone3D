@@ -703,7 +703,13 @@ class SplineROITool extends ContourSegmentationBaseTool {
     const { drawPreviewEnabled } = this.configuration.spline;
     const splineType = annotation.data.spline.type;
     const splineConfig = this._getSplineConfig(splineType);
-    const spline = annotation.data.spline.instance;
+    let spline = annotation.data.spline.instance;
+
+    if (spline.isPointNearCurve === undefined) {
+      console.log('spline not initialized!');
+      spline = new splineConfig.Class();
+      annotation.data.spline.instance = spline;
+    }
 
     const childAnnotations = getChildAnnotations(annotation);
     const missingAnnotation = childAnnotations.findIndex((it) => !it);
