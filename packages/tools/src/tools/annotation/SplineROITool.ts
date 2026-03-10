@@ -203,8 +203,6 @@ class SplineROITool extends ContourSegmentationBaseTool {
       getMouseModifierKey(evt.detail.event) ===
       this.configuration.contourHoleAdditionModifierKey;
 
-    const enabledElement = getEnabledElement(element);
-    const { renderingEngine } = enabledElement;
     const annotation = this.createAnnotation(evt) as SplineROIAnnotation;
 
     this.isDrawing = true;
@@ -412,7 +410,6 @@ class SplineROITool extends ContourSegmentationBaseTool {
     }
 
     const { element } = evt.detail;
-    const { renderingEngine } = getEnabledElement(element);
     const viewportIdsToRender = getViewportIdsWithToolToRender(
       element,
       this.getToolName()
@@ -525,9 +522,6 @@ class SplineROITool extends ContourSegmentationBaseTool {
 
     this.editData.hasMoved = true;
 
-    const enabledElement = getEnabledElement(element);
-    const { renderingEngine } = enabledElement;
-
     triggerAnnotationRenderForViewportIds(viewportIdsToRender);
   };
 
@@ -549,9 +543,6 @@ class SplineROITool extends ContourSegmentationBaseTool {
     }
 
     super.cancelAnnotation(annotation);
-
-    const enabledElement = getEnabledElement(element);
-    const { renderingEngine } = enabledElement;
 
     triggerAnnotationRenderForViewportIds(viewportIdsToRender);
 
@@ -980,7 +971,7 @@ class SplineROITool extends ContourSegmentationBaseTool {
     const { element } = eventDetail;
 
     const enabledElement = getEnabledElement(element);
-    const { renderingEngine, viewport } = enabledElement;
+    const { viewport } = enabledElement;
     const { canvasToWorld } = viewport;
 
     const { instance: spline } = data.spline;
@@ -1012,7 +1003,6 @@ class SplineROITool extends ContourSegmentationBaseTool {
     annotation: SplineROIAnnotation,
     controlPointIndex: number
   ) {
-    const enabledElement = getEnabledElement(element);
     const { points: controlPoints } = annotation.data.handles;
 
     // There is no curve with only 2 points
@@ -1022,7 +1012,6 @@ class SplineROITool extends ContourSegmentationBaseTool {
       controlPoints.splice(controlPointIndex, 1);
     }
 
-    const { renderingEngine } = enabledElement;
     const viewportIdsToRender = getViewportIdsWithToolToRender(
       element,
       this.getToolName()
@@ -1272,7 +1261,6 @@ class SplineROITool extends ContourSegmentationBaseTool {
       FrameOfReferenceUID,
       referencedImageId,
       viewPlaneNormal,
-      viewUp,
       instance,
       viewport,
     } = this.hydrateBase<SplineROITool>(
