@@ -792,9 +792,9 @@ class SplineROITool extends ContourSegmentationBaseTool {
 
     if (
       drawPreviewEnabled &&
+      this.editData?.annotation.annotationUID === annotation.annotationUID &&
       spline.numControlPoints > 1 &&
-      this.editData?.lastCanvasPoint &&
-      !spline.closed
+      this.editData?.lastCanvasPoint
     ) {
       const { lastCanvasPoint } = this.editData;
       const previewPolylinePoints = spline.getPreviewPolylinePoints(
