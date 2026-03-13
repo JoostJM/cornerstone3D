@@ -29,7 +29,9 @@ function _setElementCursor(
 }
 
 function resetElementCursor(element: HTMLDivElement): void {
-  _setElementCursor(element, _getElementCursors(element)[1]);
+  const cursor = _getElementCursors(element)[1];
+  _setElementCursor(element, cursor);
+  _getElementCursors(element)[1] = cursor;
 }
 
 function hideElementCursor(element: HTMLDivElement): void {
@@ -43,7 +45,8 @@ function hideElementCursor(element: HTMLDivElement): void {
 function _getElementCursors(
   element: HTMLDivElement
 ): [MouseCursor | null, MouseCursor | null] {
-  let map = _getElementCursors[ELEMENT_CURSORS_MAP];
+  let map: WeakMap<HTMLDivElement, [MouseCursor | null, MouseCursor | null]> =
+    _getElementCursors[ELEMENT_CURSORS_MAP];
   if (!(map instanceof WeakMap)) {
     map = new WeakMap();
     Object.defineProperty(_getElementCursors, ELEMENT_CURSORS_MAP, {
