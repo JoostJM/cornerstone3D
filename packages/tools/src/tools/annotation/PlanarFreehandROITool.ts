@@ -789,7 +789,7 @@ class PlanarFreehandROITool extends ContourSegmentationBaseTool {
       } else {
         this.updateOpenCachedStats({
           metadata,
-          canvasCoordinates,
+          points,
           targetId,
           cachedStats,
           modalityUnit,
@@ -951,7 +951,7 @@ class PlanarFreehandROITool extends ContourSegmentationBaseTool {
     cachedStats[targetId] = {
       Modality: metadata.Modality,
       area,
-      perimeter: calculatePerimeter(canvasCoordinates, closed) / scale,
+      perimeter: calculatePerimeter(points, closed) / scale,
       mean: stats.mean?.value,
       max: stats.max?.value,
       stdDev: stats.stdDev?.value,
@@ -971,7 +971,7 @@ class PlanarFreehandROITool extends ContourSegmentationBaseTool {
   protected updateOpenCachedStats({
     targetId,
     metadata,
-    canvasCoordinates,
+    points,
     cachedStats,
     modalityUnit,
     calibratedScale,
@@ -980,7 +980,7 @@ class PlanarFreehandROITool extends ContourSegmentationBaseTool {
 
     cachedStats[targetId] = {
       Modality: metadata.Modality,
-      length: calculatePerimeter(canvasCoordinates, false) / scale,
+      length: calculatePerimeter(points, false) / scale,
       modalityUnit,
       unit,
     };

@@ -12,7 +12,9 @@ function calculatePerimeter(polyline: number[][], closed: boolean): number {
     const point1 = polyline[i];
     const point2 = polyline[i + 1];
     perimeter += Math.sqrt(
-      Math.pow(point2[0] - point1[0], 2) + Math.pow(point2[1] - point1[1], 2)
+      Math.pow(point2[0] - point1[0], 2) +
+        Math.pow(point2[1] - point1[1], 2) +
+        Math.pow(point2[2] - point1[2], 2)
     );
   }
 
@@ -21,7 +23,8 @@ function calculatePerimeter(polyline: number[][], closed: boolean): number {
     const lastPoint = polyline[polyline.length - 1];
     perimeter += Math.sqrt(
       Math.pow(lastPoint[0] - firstPoint[0], 2) +
-        Math.pow(lastPoint[1] - firstPoint[1], 2)
+        Math.pow(lastPoint[1] - firstPoint[1], 2) +
+        Math.pow(lastPoint[2] - firstPoint[2], 2)
     );
   }
 

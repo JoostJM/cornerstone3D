@@ -1237,7 +1237,7 @@ class SplineROITool extends ContourSegmentationBaseTool {
       } else {
         this.updateOpenCachedStats({
           targetId,
-          canvasCoordinates,
+          points,
           metadata,
           cachedStats,
           modalityUnit,
@@ -1399,7 +1399,7 @@ class SplineROITool extends ContourSegmentationBaseTool {
     cachedStats[targetId] = {
       Modality: metadata.Modality,
       area,
-      perimeter: calculatePerimeter(canvasCoordinates, closed) / scale,
+      perimeter: calculatePerimeter(points, closed) / scale,
       mean: stats.mean?.value,
       max: stats.max?.value,
       stdDev: stats.stdDev?.value,
@@ -1419,7 +1419,7 @@ class SplineROITool extends ContourSegmentationBaseTool {
   protected updateOpenCachedStats({
     targetId,
     metadata,
-    canvasCoordinates,
+    points,
     cachedStats,
     modalityUnit,
     calibratedScale,
@@ -1428,7 +1428,7 @@ class SplineROITool extends ContourSegmentationBaseTool {
 
     cachedStats[targetId] = {
       Modality: metadata.Modality,
-      length: calculatePerimeter(canvasCoordinates, false) / scale,
+      length: calculatePerimeter(points, false) / scale,
       modalityUnit,
       unit,
     };
